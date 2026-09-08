@@ -112,9 +112,10 @@ namespace LianDian.Comm
         public void WriteString(int dAddress, string value)
         {
             int count = RegisterMap.StringCount(dAddress, _config);
-            if (Encoding.UTF8.GetByteCount(value ?? string.Empty) >= count * 2)
+            Encoding encoding = ResolveEncoding(_config.StringEncoding);
+            if (encoding.GetByteCount(value ?? string.Empty) >= count * 2)
                 throw new ArgumentException("字符串超出寄存器容量，必须保留结束符。", nameof(value));
-            WriteRegisters(dAddress, ModbusCodec.EncodeString(value, count, _config.StringLowByteFirst));
+            WriteRegisters(dAddress, ModbusCodec.EncodeString(value, count, encoding, _config.StringLowByteFirst));
         }
 
         private void WriteRegisters(int dAddress, ushort[] registers)
@@ -202,7 +203,7 @@ namespace LianDian.Comm
             ConnectionChanged?.Invoke(this, EventArgs.Empty);
         }
 
-        internal static Encoding ResolveEncoding(string name)
+        public static Encoding ResolveEncoding(string name)
         {
             if (string.IsNullOrEmpty(name)) return Encoding.UTF8;
             if (name.Equals("GBK", StringComparison.OrdinalIgnoreCase) ||

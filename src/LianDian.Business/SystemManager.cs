@@ -29,6 +29,7 @@ namespace LianDian.Business
         public BatchService Batch { get; private set; }
         public WithstandService Withstand { get; private set; }
         public PressureService Pressure { get; private set; }
+        public QrUploadService QrUpload { get; private set; }
         public IBatchRepository BatchRepo { get; private set; }
         public DatabaseInitializer Initializer { get; private set; }
         public DatabaseBackupService Backups { get; private set; }
@@ -59,6 +60,7 @@ namespace LianDian.Business
             manager.Batch = new BatchService(manager.Plc.Client, manager.Plc, manager.BatchRepo, config.Business);
             manager.Withstand = new WithstandService(manager.Plc.Client, manager.Plc, manager.BatchRepo, config.Business);
             manager.Pressure = new PressureService(manager.Plc.Client, manager.Plc, manager.BatchRepo, config.Business);
+            manager.QrUpload = new QrUploadService(manager.Plc.Client, manager.Plc, manager.BatchRepo, config.Business, config.Plc);
             return manager;
         }
 
@@ -74,12 +76,14 @@ namespace LianDian.Business
             Batch.Start();
             Withstand.Start();
             Pressure.Start();
+            QrUpload.Start();
         }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
+            try { QrUpload?.Dispose(); } catch (Exception ex) { Log.WarnFormat("QrUpload Dispose 异常：{0}", ex.Message); }
             try { Backups?.Dispose(); } catch (Exception ex) { Log.WarnFormat("Backup Dispose 异常：{0}", ex.Message); }
             try { Heartbeat?.Dispose(); } catch (Exception ex) { Log.WarnFormat("Heartbeat Dispose 异常：{0}", ex.Message); }
             try { Pressure?.Dispose(); } catch (Exception ex) { Log.WarnFormat("Pressure Dispose 异常：{0}", ex.Message); }

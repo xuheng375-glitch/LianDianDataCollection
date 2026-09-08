@@ -23,7 +23,14 @@ namespace LianDian.Data
         {
             EnsureTable();
             EnsureBatchColumns();
+            _context.ExecuteNonQuery("CREATE INDEX IF NOT EXISTS ix_batch_unbound_withstand ON batch_record(id) WHERE withstand_result IS NULL");
             _context.ExecuteNonQuery("CREATE INDEX IF NOT EXISTS ix_batch_product_date ON batch_record(product_name, batch_date, batch_no)");
+            _context.ExecuteNonQuery("CREATE TABLE IF NOT EXISTS product_catalog(product_name TEXT NOT NULL PRIMARY KEY, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL)");
+            // 旧库只在目录表为空时执行一次事实表回填；正常启动不再扫描多年历史数据。
+            if (Convert.ToInt64(_context.ExecuteScalar("SELECT COUNT(*) FROM product_catalog")) == 0)
+                _context.ExecuteNonQuery(@"INSERT OR IGNORE INTO product_catalog(product_name,first_seen_at,last_seen_at)
+                    SELECT product_name,COALESCE(MIN(issue_time),datetime('now')),COALESCE(MAX(issue_time),datetime('now'))
+                    FROM batch_record WHERE product_name IS NOT NULL AND product_name<>'' GROUP BY product_name");
             _context.ExecuteNonQuery("CREATE TABLE IF NOT EXISTS runtime_health(id INTEGER PRIMARY KEY, checked_at TEXT); INSERT OR IGNORE INTO runtime_health(id) VALUES(1)");
             _context.ExecuteNonQuery("CREATE TABLE IF NOT EXISTS plc_pending_ack(channel INTEGER PRIMARY KEY, batch_date TEXT NOT NULL, batch_no INTEGER NOT NULL)");
             Log.Info("SQLite 数据库已就绪");
@@ -47,6 +54,7 @@ CREATE TABLE IF NOT EXISTS batch_record (
   pressure NUMERIC NULL,
   pressure_result INTEGER NULL,
   pressure_time TEXT NULL,
+  qr_grade TEXT NULL,
   CONSTRAINT uk_batch UNIQUE (batch_date, batch_no)
 );";
             _context.ExecuteNonQuery(sql);

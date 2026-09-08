@@ -63,12 +63,13 @@ namespace LianDian.Comm
         }
 
         /// <summary>字符串 → 寄存器区，用于实际 PLC 字符串写入，与 DecodeString 互逆。</summary>
-        public static ushort[] EncodeString(string value, int registerCount, bool lowByteFirst)
+        public static ushort[] EncodeString(string value, int registerCount, Encoding encoding, bool lowByteFirst)
         {
             if (registerCount < 0) throw new ArgumentOutOfRangeException(nameof(registerCount));
+            if (encoding == null) throw new ArgumentNullException(nameof(encoding));
             var regs = new ushort[registerCount];
             if (string.IsNullOrEmpty(value)) return regs;
-            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            byte[] bytes = encoding.GetBytes(value);
             for (int i = 0; i < regs.Length; i++)
             {
                 byte b0 = i * 2 < bytes.Length ? bytes[i * 2] : (byte)0;
@@ -77,6 +78,10 @@ namespace LianDian.Comm
             }
             return regs;
         }
+
+        /// <summary>兼容默认 UTF-8 调用；生产通信应显式传入配置编码。</summary>
+        public static ushort[] EncodeString(string value, int registerCount, bool lowByteFirst)
+            => EncodeString(value, registerCount, Encoding.UTF8, lowByteFirst);
 
         /// <summary>在首个 '\0' 处截断，避免尾部乱码。</summary>
         public static string TrimEndNull(string value)

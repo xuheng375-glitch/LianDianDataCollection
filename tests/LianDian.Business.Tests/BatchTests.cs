@@ -39,7 +39,10 @@ namespace LianDian.Business.Tests
             var now = new DateTime(2026, 7, 7, 10, 0, 0);
             string date = now.ToBatchDateString();
             for (int i = 1; i <= 5; i++)
+            {
                 repo.Insert(new BatchRecord { BatchDate = date, BatchNo = i, ProductName = "P" + i });
+                repo.ClearPendingAck(RegisterMap.D4002_BatchIssueFlag, date, i);
+            }
 
             var service = new BatchService(new FakePlcClient(), new FakeSnapshot(), repo, Config(), () => now);
             service.InitFromDatabase();
@@ -133,13 +136,15 @@ namespace LianDian.Business.Tests
         [Theory]
         [InlineData("A")]
         [InlineData("F")]
-        public void TickOnce_ReadsCurrentGradeWhenFlagIsOne(string grade)
+        public void TickOnce_IssuesWithoutBindingGrade(string grade)
         {
             var plc = new FakePlcClient();
+            plc.BeforeReadString = address => { if (address == 6000) throw new InvalidOperationException("二维码不应在下发时读取"); };
             plc.SetString(RegisterMap.D6000_QrGrade, grade, 1);
             var snapshot = new FakeSnapshot();
             snapshot.SetString(RegisterMap.D5000_ProductName, "P1");
             snapshot.SetDInt(RegisterMap.D4002_BatchIssueFlag, 1);
+            snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, 1001);
             snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, 600249);
             snapshot.SetString(RegisterMap.D6000_QrGrade, "B");
             var repo = new InMemoryBatchRepository();
@@ -147,7 +152,7 @@ namespace LianDian.Business.Tests
             service.InitFromDatabase();
             service.EnableForTest();
             service.TickOnce();
-            Assert.Equal(grade, repo.Records.Single().QrGrade);
+            Assert.Null(repo.Records.Single().QrGrade);
             Assert.Equal("600249", repo.Records.Single().EmployeeNo);
             Assert.Contains("D4100=00001", plc.StringWrites);
             Assert.Contains("D5700=26188", plc.StringWrites);
@@ -157,21 +162,22 @@ namespace LianDian.Business.Tests
         [InlineData("")]
         [InlineData("G")]
         [InlineData("a")]
-        public void TickOnce_InvalidGradeDoesNotAcknowledgeOrIssue(string grade)
+        public void TickOnce_InvalidGradeDoesNotBlockIssue(string grade)
         {
             var plc = new FakePlcClient();
             plc.SetString(RegisterMap.D6000_QrGrade, grade, 1);
             var snapshot = new FakeSnapshot();
             snapshot.SetString(RegisterMap.D5000_ProductName, "P1");
             snapshot.SetDInt(RegisterMap.D4002_BatchIssueFlag, 1);
+            snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, 1001);
             var repo = new InMemoryBatchRepository();
             var service = new BatchService(plc, snapshot, repo, Config(), () => new DateTime(2026, 7, 7));
             service.InitFromDatabase();
             service.EnableForTest();
             service.TickOnce();
-            Assert.Empty(repo.Records);
-            Assert.Empty(plc.StringWrites);
-            Assert.Empty(plc.Writes);
+            Assert.Null(Assert.Single(repo.Records).QrGrade);
+            Assert.Equal(2, plc.StringWrites.Count);
+            Assert.Contains(plc.Writes, w => w.Address == 4002 && w.Value == 2);
         }
 
         [Fact]
@@ -182,6 +188,7 @@ namespace LianDian.Business.Tests
             var snapshot = new FakeSnapshot();
             snapshot.SetString(RegisterMap.D5000_ProductName, "P1");
             snapshot.SetDInt(RegisterMap.D4002_BatchIssueFlag, 1);
+            snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, 1001);
             var now = new DateTime(2026, 7, 7, 10, 0, 0);
             var service = new BatchService(plc, snapshot, repo, Config(), () => now);
             service.InitFromDatabase();
@@ -204,9 +211,13 @@ namespace LianDian.Business.Tests
             var snapshot = new FakeSnapshot();
             snapshot.SetString(RegisterMap.D5000_ProductName, "P1");
             snapshot.SetDInt(RegisterMap.D4002_BatchIssueFlag, 1);
+            snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, 1001);
             // 前一天已下发 5 个批次，启动续号为 6
             for (int i = 1; i <= 5; i++)
+            {
                 repo.Insert(new BatchRecord { BatchDate = "26188", BatchNo = i, ProductName = "P" + i });
+                repo.ClearPendingAck(RegisterMap.D4002_BatchIssueFlag, "26188", i);
+            }
             var current = new DateTime(2026, 7, 7, 23, 59, 59);
             var service = new BatchService(plc, snapshot, repo, Config(), () => current);
             service.InitFromDatabase();

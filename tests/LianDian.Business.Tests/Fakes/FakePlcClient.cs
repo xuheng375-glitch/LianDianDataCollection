@@ -24,6 +24,8 @@ namespace LianDian.Business.Tests.Fakes
         public IList<WriteRecord> Writes { get; } = new List<WriteRecord>();
         public IList<string> StringWrites { get; } = new List<string>();
         public Action<int> BeforeReadRegisters { get; set; }
+        public Action<int> BeforeReadString { get; set; }
+        public Action<int, int> BeforeWriteDInt { get; set; }
 
         public void SetDInt(int dAddress, int value)
         {
@@ -32,7 +34,7 @@ namespace LianDian.Business.Tests.Fakes
 
         public void SetString(int dAddress, string value, int registerCount = 10, bool lowByteFirst = true)
         {
-            _registers[dAddress] = EncodeString(value, registerCount, lowByteFirst);
+            _registers[dAddress] = ModbusCodec.EncodeString(value, registerCount, Encoding.UTF8, lowByteFirst);
         }
 
         public void Connect()
@@ -55,12 +57,14 @@ namespace LianDian.Business.Tests.Fakes
 
         public void WriteDInt(int dAddress, int value)
         {
+            BeforeWriteDInt?.Invoke(dAddress, value);
             Writes.Add(new WriteRecord(dAddress, value));
             _registers[dAddress] = ModbusCodec.FromDInt(value, _lowWordFirst);
         }
 
         public string ReadString(int dAddress, int registerCount)
         {
+            BeforeReadString?.Invoke(dAddress);
             ushort[] regs = Get(dAddress, registerCount);
             return ModbusCodec.DecodeString(regs, 0, registerCount, Encoding.UTF8, true);
         }
@@ -80,20 +84,6 @@ namespace LianDian.Business.Tests.Fakes
         {
             StringWrites.Add("D" + dAddress + "=" + value);
             SetString(dAddress, value, RegisterMap.StringRegisterCounts[dAddress]);
-        }
-
-        public static ushort[] EncodeString(string value, int registerCount, bool lowByteFirst)
-        {
-            var regs = new ushort[registerCount];
-            if (string.IsNullOrEmpty(value)) return regs;
-            byte[] bytes = Encoding.UTF8.GetBytes(value);
-            for (int i = 0; i < regs.Length; i++)
-            {
-                byte b0 = i * 2 < bytes.Length ? bytes[i * 2] : (byte)0;
-                byte b1 = i * 2 + 1 < bytes.Length ? bytes[i * 2 + 1] : (byte)0;
-                regs[i] = lowByteFirst ? (ushort)(b0 | (b1 << 8)) : (ushort)((b0 << 8) | b1);
-            }
-            return regs;
         }
 
         private ushort[] Get(int dAddress, int count)

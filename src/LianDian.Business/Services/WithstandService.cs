@@ -84,6 +84,11 @@ namespace LianDian.Business.Services
             _cycleSnapshot = (_snapshot as IPlcSnapshotSource)?.Capture() ?? _snapshot;
             int flag;
             if (!Snapshot.TryGetDInt(RegisterMap.D4010_WithstandFlag, out flag)) return;
+            if (flag != (int)FlagState.Waiting)
+            {
+                PendingAckCoordinator.TryReconcileIdle(_repo, RegisterMap.D4010_WithstandFlag, flag, Log,
+                    message => ErrorOccurred?.Invoke(this, new UploadErrorEventArgs(message)));
+            }
             bool shouldProcess = flag == (int)FlagState.Waiting && (_lastFlag != (int)FlagState.Waiting || _retryPending);
             _lastFlag = flag;
             if (shouldProcess)

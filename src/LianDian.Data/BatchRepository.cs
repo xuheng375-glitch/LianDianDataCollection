@@ -8,6 +8,7 @@ namespace LianDian.Data
     public interface IBatchRepository
     {
         int GetMaxBatchNo(string batchDate);
+        long CountUnboundWithstand();
         bool Exists(string batchDate, int batchNo);
         bool ExistsByProduct(string batchDate, int batchNo, string productName);
         bool HasWithstandData(string batchDate, int batchNo);
@@ -15,6 +16,7 @@ namespace LianDian.Data
         long Insert(BatchRecord record);
         int UpdateWithstand(WithstandTestRecord record);
         int UpdatePressure(PressureTestRecord record);
+        int BindQrGrade(string batchDate, int batchNo, string productName, string grade);
         IList<BatchRecord> Query(string fromDate, string toDate, string productName);
         IList<BatchRecord> QueryPage(string fromDate, string toDate, string productName, int offset, int limit);
         IEnumerable<BatchRecord> ExportRows(string fromDate, string toDate, string productName);
@@ -24,6 +26,9 @@ namespace LianDian.Data
     /// <summary>单表模型仓储：批次下发生成空记录，耐压/气压上传 UPDATE 同批次行。</summary>
     public sealed class BatchRepository : IBatchRepository, IPendingPlcAckStore
     {
+        public long CountUnboundWithstand() => Convert.ToInt64(_context.ExecuteScalar(
+            "SELECT COUNT(*) FROM batch_record WHERE withstand_result IS NULL"));
+
         private readonly DataContext _context;
 
         public BatchRepository(DataContext context)
@@ -96,6 +101,15 @@ VALUES (@d, @n, @e, @p, @t, @g)";
                     cmd.Parameters.Clear();
                     cmd.CommandText = "SELECT last_insert_rowid()";
                     long id = Convert.ToInt64(cmd.ExecuteScalar());
+                    if (!string.IsNullOrWhiteSpace(record.ProductName))
+                    {
+                        cmd.CommandText = @"INSERT INTO product_catalog(product_name,first_seen_at,last_seen_at) VALUES(@p,@t,@t)
+                            ON CONFLICT(product_name) DO UPDATE SET last_seen_at=excluded.last_seen_at";
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.Add(DataContext.Param("@p", record.ProductName));
+                        cmd.Parameters.Add(DataContext.Param("@t", record.IssueTime));
+                        cmd.ExecuteNonQuery();
+                    }
                     SavePendingAck(conn, transaction, 4002, record.BatchDate, record.BatchNo);
                     transaction.Commit();
                     return id;
@@ -107,6 +121,19 @@ VALUES (@d, @n, @e, @p, @t, @g)";
                 throw new DuplicateKeyException(
                     string.Format("批次 {0}-{1} 已存在（uk_batch 冲突）", record.BatchDate, record.BatchNo), ex);
             }
+        }
+
+        public int BindQrGrade(string batchDate, int batchNo, string productName, string grade)
+        {
+            if (string.IsNullOrWhiteSpace(productName))
+                throw new ArgumentException("二维码上传产品名称不能为空。", nameof(productName));
+            if (grade == null || grade.Length != 1 || grade[0] < 'A' || grade[0] > 'F')
+                throw new ArgumentException("二维码等级必须为A～F。", nameof(grade));
+            // 相同等级允许幂等重传；已有不同等级不自动覆盖。
+            return UpdateAndQueueAck(4004, batchDate, batchNo,
+                "UPDATE batch_record SET qr_grade=@g WHERE batch_date=@d AND batch_no=@n AND product_name=@p AND (qr_grade IS NULL OR qr_grade=@g)",
+                DataContext.Param("@g", grade), DataContext.Param("@d", batchDate),
+                DataContext.Param("@n", batchNo), DataContext.Param("@p", productName));
         }
 
         public int UpdateWithstand(WithstandTestRecord record)
@@ -269,7 +296,7 @@ VALUES (@d, @n, @e, @p, @t, @g)";
             var result = new List<string>();
             using (SQLiteConnection conn = _context.OpenConnection())
             using (SQLiteCommand cmd = _context.CreateCommand(conn,
-                "SELECT DISTINCT product_name FROM batch_record WHERE product_name IS NOT NULL AND product_name <> '' ORDER BY product_name"))
+                "SELECT product_name FROM product_catalog ORDER BY product_name"))
             using (SQLiteDataReader reader = cmd.ExecuteReader())
             {
                 while (reader.Read())

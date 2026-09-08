@@ -1,5 +1,4 @@
 using System.Text;
-using LianDian.Business.Tests.Fakes;
 using LianDian.Comm;
 using Xunit;
 
@@ -29,7 +28,7 @@ namespace LianDian.Business.Tests
         public void String_LowByteFirst_DecodesProductName()
         {
             const string product = "HT11-ACBARBUS";
-            ushort[] regs = FakePlcClient.EncodeString(product, 10, lowByteFirst: true);
+            ushort[] regs = ModbusCodec.EncodeString(product, 10, Encoding.UTF8, lowByteFirst: true);
             string decoded = ModbusCodec.DecodeString(regs, 0, regs.Length, Encoding.UTF8, lowByteFirst: true);
             Assert.Equal(product, decoded);
         }
@@ -38,7 +37,7 @@ namespace LianDian.Business.Tests
         public void String_WrongByteOrder_ProducesDifferentText()
         {
             const string product = "HT11-ACBARBUS";
-            ushort[] regs = FakePlcClient.EncodeString(product, 10, lowByteFirst: true);
+            ushort[] regs = ModbusCodec.EncodeString(product, 10, Encoding.UTF8, lowByteFirst: true);
             string wrong = ModbusCodec.DecodeString(regs, 0, regs.Length, Encoding.UTF8, lowByteFirst: false);
             Assert.NotEqual(product, wrong);
             Assert.Contains("TH", wrong); // 经典乱序：HT11 → TH11

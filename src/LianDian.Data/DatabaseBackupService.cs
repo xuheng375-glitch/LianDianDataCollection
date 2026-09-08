@@ -69,15 +69,22 @@ namespace LianDian.Data
                     }
                 }
                 File.Move(pending, target);
-                _lastSuccess = DateTime.UtcNow;
-                LastError = null;
                 // 仅识别本服务自己的 GUID 格式，不清理主库或人工备份。
                 foreach (string file in Directory.GetFiles(dir, "lian-dian-backup-*.db"))
                 {
-                    string name = Path.GetFileNameWithoutExtension(file);
-                    if (name.Length < 32 || !Guid.TryParseExact(name.Substring(name.Length - 32), "N", out _)) continue;
-                    if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-_config.BackupRetentionDays)) File.Delete(file);
+                    try
+                    {
+                        string name = Path.GetFileNameWithoutExtension(file);
+                        if (name.Length < 32 || !Guid.TryParseExact(name.Substring(name.Length - 32), "N", out _)) continue;
+                        if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddDays(-_config.BackupRetentionDays)) File.Delete(file);
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        LogHelper.Get(LogHelper.Database).Warn("旧备份清理失败，不影响本次备份成功：" + file, cleanupError);
+                    }
                 }
+                _lastSuccess = DateTime.UtcNow;
+                LastError = null;
                 LogHelper.Get(LogHelper.Database).Info("在线备份已完成并校验：" + target);
                 return target;
             }

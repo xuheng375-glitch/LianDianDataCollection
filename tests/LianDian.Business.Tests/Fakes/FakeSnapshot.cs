@@ -36,8 +36,8 @@ namespace LianDian.Business.Tests.Fakes
         {
             ushort low;
             ushort high;
-            if (!_words.TryGetValue(dAddress, out low)) low = 0;
-            if (!_words.TryGetValue(dAddress + 1, out high)) high = 0;
+            if (!_words.TryGetValue(dAddress, out low) || !_words.TryGetValue(dAddress + 1, out high))
+            { value = 0; return false; }
             value = _lowWordFirst
                 ? ModbusCodec.ToDInt(new[] { low, high }, 0, true)
                 : ModbusCodec.ToDInt(new[] { low, high }, 0, false);
@@ -51,8 +51,7 @@ namespace LianDian.Business.Tests.Fakes
 
         public bool TryGetWord(int dAddress, out ushort value)
         {
-            if (!_words.TryGetValue(dAddress, out value)) value = 0;
-            return true;
+            return _words.TryGetValue(dAddress, out value);
         }
     }
 }

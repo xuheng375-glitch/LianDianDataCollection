@@ -23,6 +23,7 @@ namespace LianDian.UI
     public sealed class MainForm : UIForm
     {
         private readonly SystemManager _manager;
+        private readonly Icon _applicationIcon = System.Drawing.Icon.ExtractAssociatedIcon(typeof(MainForm).Assembly.Location);
         private readonly Timer _clockTimer;
         private readonly Timer _picTimer;
 
@@ -40,6 +41,11 @@ namespace LianDian.UI
         private readonly UIDatePicker _toPicker = new UIDatePicker();
         private readonly UIComboBox _productCombo = new UIComboBox();
         private readonly UIDataGridView _grid = new UIDataGridView();
+        private readonly Font _ngBadgeFont = new Font("Consolas", 11F, FontStyle.Bold);
+        private readonly UILabel _unboundLabel = new UILabel();
+        private readonly UIDataGridView _eventLog = new UIDataGridView();
+        private UIPanel _logPanel;
+        private readonly Dictionary<string, DateTime> _recentLogMessages = new Dictionary<string, DateTime>();
         private UILabel _countLabel;
         private readonly IList<string> _allProducts = new List<string>();
         private readonly string _productPicDir;
@@ -65,6 +71,7 @@ namespace LianDian.UI
             _instructionDir = ImageResolver.ResolveDir(manager.Config.Paths.InstructionDir);
 
             Text = "联电数据收集";
+            Icon = _applicationIcon;
             FlatTheme.ApplyForm(this);
             FormBorderStyle = FormBorderStyle.None;
             AllowShowTitle = false;
@@ -84,6 +91,11 @@ namespace LianDian.UI
             BuildBrandBar();
             BuildLeft();
             BuildRight();
+
+            FlatTheme.ApplyLabel(_unboundLabel, FlatTheme.Text, FlatTheme.Panel);
+            _unboundLabel.Font = FlatTheme.UiSmall;
+            _unboundLabel.Text = "当前未绑定数据的数量：读取中";
+            _tablePanel.Controls.Add(_unboundLabel);
             WireEvents();
             AutoScaleMode = AutoScaleMode.None;
             MinimumSize = new Size(1280, 720);
@@ -296,6 +308,28 @@ namespace LianDian.UI
             _productImage.Cursor = Cursors.Default;
             imagePanel.Controls.Add(_productImage);
             Controls.Add(imagePanel);
+            _logPanel = CreatePanel(new Rectangle(24, 800, 440, 240), "重要日志", null, FlatTheme.Cyan, null);
+            _eventLog.StyleCustomMode = true;
+            _eventLog.Style = UIStyle.Custom;
+            _eventLog.ReadOnly = true;
+            _eventLog.AllowUserToAddRows = false;
+            _eventLog.AllowUserToDeleteRows = false;
+            _eventLog.RowHeadersVisible = false;
+            _eventLog.ColumnHeadersVisible = false;
+            _eventLog.BackgroundColor = FlatTheme.Panel;
+            _eventLog.BorderStyle = BorderStyle.None;
+            _eventLog.DefaultCellStyle = new DataGridViewCellStyle { BackColor=FlatTheme.Panel, ForeColor=FlatTheme.Text,
+                SelectionBackColor=FlatTheme.CyanDark, SelectionForeColor=Color.White, Font=FlatTheme.UiSmall,
+                WrapMode=DataGridViewTriState.True };
+            _eventLog.RowsDefaultCellStyle = _eventLog.DefaultCellStyle;
+            _eventLog.AlternatingRowsDefaultCellStyle = _eventLog.DefaultCellStyle;
+            _eventLog.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+            _eventLog.Columns.Add("message", "重要信息");
+            _eventLog.Columns[0].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            _eventLog.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
+            _logPanel.Controls.Add(_eventLog);
+            Controls.Add(_logPanel);
+            AddImportantLog("系统界面已启动。");
         }
 
         private static void AddMeta(MetaRowPanel panel, UILabel valueLabel, string key, int index)
@@ -454,6 +488,8 @@ namespace LianDian.UI
             _grid.StripeOddColor = FlatTheme.Panel;
             _grid.ColumnHeadersDefaultCellStyle.BackColor = FlatTheme.Header;
             _grid.ColumnHeadersDefaultCellStyle.ForeColor = FlatTheme.Cyan;
+            _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = FlatTheme.Header;
+            _grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = FlatTheme.Cyan;
             _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
             _grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(16, 0, 12, 0);
@@ -512,7 +548,7 @@ namespace LianDian.UI
                 using (var pen = new Pen(Color.FromArgb(90, color)))
                     e.Graphics.DrawPath(pen, path);
             }
-            TextRenderer.DrawText(e.Graphics, s, FlatTheme.MonoSmall, badge, color,
+            TextRenderer.DrawText(e.Graphics, s, s == "NG" ? _ngBadgeFont : FlatTheme.MonoSmall, badge, color,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             e.Handled = true;
         }
@@ -533,11 +569,13 @@ namespace LianDian.UI
 
         private void WireEvents()
         {
-            _manager.Plc.ConnectionChanged += (s, e) => SafeInvoke(RefreshLamps);
-            _manager.DbHealth.HealthChanged += (s, e) => SafeInvoke(RefreshLamps);
+            _manager.Plc.ConnectionChanged += (s, e) => SafeInvoke(() => { RefreshLamps(); AddImportantLog(_manager.Plc.Client.IsConnected ? "PLC已连接" : "PLC连接断开"); });
+            _manager.DbHealth.HealthChanged += (s, e) => SafeInvoke(() => { RefreshLamps(); AddImportantLog(_manager.DbHealth.IsHealthy ? "数据库正常" : "数据库异常"); });
             _manager.Batch.BatchIssued += OnBatchIssued;
             _manager.Withstand.RecordUploaded += OnUpload;
             _manager.Pressure.RecordUploaded += OnUpload;
+            _manager.QrUpload.RecordUploaded += (s, e) => SafeInvoke(() => { AddImportantLog("二维码匹配入库成功"); DoQuery(); });
+            _manager.QrUpload.ErrorOccurred += (s, e) => SafeInvoke(() => SetWarn(e.Message));
             _manager.Withstand.DataMismatch += (s, e) => SafeInvoke(() => SetWarn(e.Message));
             _manager.Pressure.DataMismatch += (s, e) => SafeInvoke(() => SetWarn(e.Message));
             _manager.Batch.ErrorOccurred += (s, e) => SafeInvoke(() => SetWarn(e.Message));
@@ -549,21 +587,14 @@ namespace LianDian.UI
         {
             SafeInvoke(() =>
             {
+                AddImportantLog("批次下发成功，下一批次 " + _manager.Batch.CurrentBatchNo.ToString("D5"));
                 RefreshCurrentBatch();
                 _pageIndex = 0;
                 // 下发成功后显示实时批次，避免历史日期或产品筛选隐藏新记录。
                 DateTime today = DateTime.Today;
                 if (_fromPicker.Value.Date > today) _fromPicker.Value = today;
                 if (_toPicker.Value.Date < today) _toPicker.Value = today;
-                try
-                {
-                    RefreshProductCombo();
-                }
-                catch (Exception ex)
-                {
-                    SetWarn("产品列表刷新失败：" + ex.Message);
-                    return;
-                }
+                // 产品目录已在批次事务中增量维护；下拉框展开前再读取小表即可。
                 DoQuery();
                 if (_grid.Rows.Count > 0)
                     _grid.FirstDisplayedScrollingRowIndex = 0;
@@ -574,6 +605,7 @@ namespace LianDian.UI
         {
             SafeInvoke(() =>
             {
+                AddImportantLog((sender == _manager.Withstand ? "耐压" : "气密") + "上传：" + (e.State == FlagState.Success ? "匹配入库成功" : "历史数据已存在"));
                 DoQuery();
                 if (e.State == FlagState.Error)
                     SetWarn("批次存在历史测试数据（标志位=3），请到 PLC 侧确认后清除标志位");
@@ -583,7 +615,19 @@ namespace LianDian.UI
 
         private void SetWarn(string message)
         {
+            if (!string.IsNullOrWhiteSpace(message)) AddImportantLog(message);
             _warnLabel.Text = string.IsNullOrEmpty(message) ? "" : "⚠ " + message;
+        }
+
+        private void AddImportantLog(string message)
+        {
+            DateTime now = DateTime.Now;
+            DateTime previous;
+            if (_recentLogMessages.TryGetValue(message, out previous) && (now - previous).TotalSeconds < 30) return;
+            if (_recentLogMessages.Count >= 500) _recentLogMessages.Clear();
+            _recentLogMessages[message] = now;
+            _eventLog.Rows.Insert(0, now.ToString("MM-dd HH:mm:ss") + "  " + message);
+            while (_eventLog.Rows.Count > 200) _eventLog.Rows.RemoveAt(_eventLog.Rows.Count - 1);
         }
 
         private void ApplyResponsiveLayout()
@@ -596,7 +640,10 @@ namespace LianDian.UI
             foreach (Control c in Controls)
                 if (c is UIPanel && c.Height == 2) c.Bounds = new Rectangle(24, 86, w - 48, 2);
             _batchPanel.Bounds = new Rectangle(24, 104, left, 210);
-            _imagePanel.Bounds = new Rectangle(24, 330, left, Math.Max(240, h - 372));
+            int logHeight = Math.Max(150, Math.Min(240, h / 4));
+            _logPanel.Bounds = new Rectangle(24, h - 42 - logHeight, left, logHeight);
+            _eventLog.Bounds = new Rectangle(10, 50, left - 20, logHeight - 60);
+            _imagePanel.Bounds = new Rectangle(24, 330, left, _logPanel.Top - 346);
             _productImage.Bounds = new Rectangle(18, 54, left - 36, _imagePanel.Height - 72);
             _batchNoLabel.Bounds = new Rectangle(20, 50, left - 40, 84);
             var meta = _batchPanel.Controls.OfType<MetaRowPanel>().First();
@@ -611,6 +658,7 @@ namespace LianDian.UI
             _tablePanel.Bounds = new Rectangle(rightX, 248, rightWidth, Math.Max(220, h - 294));
             _grid.Bounds = new Rectangle(0, 46, rightWidth, _tablePanel.Height - 46);
             _countLabel.Bounds = new Rectangle(rightWidth - 235, 14, 215, 22);
+            _unboundLabel.Bounds = new Rectangle(110, 12, Math.Max(250, rightWidth - 540), 24);
             _previousPage.Bounds = new Rectangle(rightWidth - 420, 8, 82, 30);
             _nextPage.Bounds = new Rectangle(rightWidth - 330, 8, 82, 30);
             int dateW = Math.Max(140, Math.Min(176, rightWidth / 6));
@@ -628,7 +676,7 @@ namespace LianDian.UI
             _clockDateLabel.Bounds = new Rectangle(_brandPanel.Width - 450, 40, 230, 20);
             foreach (Control c in _brandPanel.Controls.OfType<UIButton>())
                 c.Left = _brandPanel.Width - (c.Text == "退出" ? 80 : 190);
-            foreach (var panel in new[] { _batchPanel, _imagePanel, _queryPanel, _tablePanel })
+            foreach (var panel in new[] { _batchPanel, _imagePanel, _logPanel, _queryPanel, _tablePanel })
                 foreach (Control c in panel.Controls)
                 {
                     if (c is UIPanel && c.Height == 1) c.Width = panel.Width - 2;
@@ -771,13 +819,20 @@ namespace LianDian.UI
                 string product = _productCombo.Text;
                 if (string.IsNullOrEmpty(product) || product == "全部产品") product = null;
                 int offset = checked(_pageIndex * PageSize);
-                IList<BatchRecord> rows = await Task.Run(() => _manager.BatchRepo.QueryPage(from, to, product, offset, PageSize + 1));
+                long unboundCount = 0;
+                IList<BatchRecord> rows = await Task.Run(() =>
+                {
+                    unboundCount = _manager.BatchRepo.CountUnboundWithstand();
+                    return _manager.BatchRepo.QueryPage(from, to, product, offset, PageSize + 1);
+                });
                 if (_closing || _queryPending) return;
+                _unboundLabel.Text = "当前未绑定数据的数量：" + unboundCount;
                 bool hasMore = rows.Count > PageSize;
                 _grid.Rows.Clear();
+                foreach (DataGridViewColumn column in _grid.Columns) column.SortMode = DataGridViewColumnSortMode.NotSortable;
                 foreach (BatchRecord r in rows.Take(PageSize))
                 {
-                    _grid.Rows.Add(
+                    int rowIndex = _grid.Rows.Add(
                         r.BatchDate,
                         r.BatchNo.ToString("00000"),
                         r.ProductName ?? "--",
@@ -790,6 +845,7 @@ namespace LianDian.UI
                         r.PressureResult.HasValue ? (r.PressureResult == 1 ? "OK" : "NG") : "--",
                         r.IssueTime == DateTime.MinValue ? "--" : r.IssueTime.ToString("yyyy-MM-dd HH:mm:ss"),
                         r.QrGrade ?? "--");
+                    _grid.Rows[rowIndex].Tag = r;
                 }
                 SetWarn(string.Empty);
                 _countLabel.Text = "第 " + (_pageIndex + 1) + " 页 · " + Math.Min(rows.Count, PageSize) + " 条";
@@ -850,6 +906,9 @@ namespace LianDian.UI
             {
                 _closing = true;
                 _clockTimer?.Dispose(); _picTimer?.Dispose();
+
+                _applicationIcon?.Dispose();
+                _ngBadgeFont.Dispose();
                 _productImage.BackgroundImage?.Dispose(); _productImage.BackgroundImage = null;
             }
             base.Dispose(disposing);

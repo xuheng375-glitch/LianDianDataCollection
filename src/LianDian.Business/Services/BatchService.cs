@@ -12,7 +12,7 @@ using log4net;
 namespace LianDian.Business.Services
 {
     /// <summary>
-    /// 批次号管理：DB 当日最大批次+1 续号，D4002=1 读取 D6000，写 D5700/D4100、读工号/产品名、
+    /// 批次号管理：DB 当日最大批次+1 续号，D4002=1 写 D5700/D4100、读工号/产品名、
     /// 插入空测试字段记录、标志位=2；重复键幂等；可配时刻跨天重置为 1。
     /// </summary>
     public sealed class BatchService : IDisposable
@@ -98,6 +98,11 @@ namespace LianDian.Business.Services
             CheckDailyReset();
             int flag;
             if (!Snapshot.TryGetDInt(RegisterMap.D4002_BatchIssueFlag, out flag)) return;
+            if (flag != (int)FlagState.Waiting)
+            {
+                PendingAckCoordinator.TryReconcileIdle(_repo, RegisterMap.D4002_BatchIssueFlag, flag, Log,
+                    message => ErrorOccurred?.Invoke(this, new BatchErrorEventArgs(message)));
+            }
             bool shouldProcess = flag == (int)FlagState.Waiting && (_lastFlag != (int)FlagState.Waiting || _retryPending);
             _lastFlag = flag;
             if (shouldProcess)
@@ -166,9 +171,6 @@ namespace LianDian.Business.Services
             // 写批次下发日期/批次号
             if (batchNo < 1 || batchNo > 99999) throw new InvalidOperationException("批次号必须为00001～99999。");
             if (!PlcText.IsDate(batchDate)) throw new InvalidOperationException("日期必须为有效的yyDDD编码。");
-            string grade = _plc.ReadString(RegisterMap.D6000_QrGrade, 1);
-            if (grade == null || grade.Length != 1 || grade[0] < 'A' || grade[0] > 'F')
-                throw new InvalidOperationException("D6000二维码等级必须为A～F，批次未下发。");
             _plc.WriteString(RegisterMap.D5700_BatchIssueDate, batchDate);
             _plc.WriteString(RegisterMap.D4100_BatchIssueNo, batchNo.ToString("D5", CultureInfo.InvariantCulture));
 
@@ -178,7 +180,6 @@ namespace LianDian.Business.Services
                 BatchNo = batchNo,
                 EmployeeNo = employeeNo,
                 ProductName = productName,
-                QrGrade = grade,
                 IssueTime = _now()
             };
             try

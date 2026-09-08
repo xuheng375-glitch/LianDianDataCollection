@@ -15,6 +15,9 @@ namespace LianDian.Comm
         public const int D4002_BatchIssueFlag = 4002;
         public const int D5700_BatchIssueDate = 5700;
         public const int D4100_BatchIssueNo = 4100;
+        public const int D4004_QrUploadFlag = 4004;
+        public const int D4400_QrBatchNo = 4400;
+        public const int D6100_QrDate = 6100;
 
         // 耐压上传
         public const int D4010_WithstandFlag = 4010;
@@ -31,6 +34,7 @@ namespace LianDian.Comm
         // 员工工号：完整 DINT，占 D4030、D4031，支持六位工号。
         public const int D4030_EmployeeNo = 4030;
         public const int D6000_QrGrade = 6000;
+        public const int D6200_QrProductName = 6200;
 
         // 字符串区（STRING）
         public const int D5000_ProductName = 5000;
@@ -53,17 +57,19 @@ namespace LianDian.Comm
             { D5600_PressureValue, 6 },
             { D4100_BatchIssueNo, 3 }, { D4200_WithstandBatchNo, 3 }, { D4300_PressureBatchNo, 3 },
             { D5700_BatchIssueDate, 3 }, { D5800_WithstandDate, 3 }, { D5900_PressureDate, 3 },
-            { D6000_QrGrade, 1 }
+            { D6000_QrGrade, 1 }, { D4400_QrBatchNo, 3 }, { D6100_QrDate, 3 },
+            { D6200_QrProductName, 10 }
         };
 
         /// <summary>
         /// 快照按有效点位分别读取，员工工号读取完整 DINT；心跳、下发字符串不轮询。
-        /// 二维码等级在批次下发标志为 1 时直接读取，不使用轮询缓存。
+        /// 二维码数据在 D4004 为 1 时直接读取，不使用轮询缓存。
         /// + 各字符串块。失败字段本周期失效，不使用旧值处理生产请求。
         /// </summary>
         public static readonly List<PollBlock> PollBlocks = new List<PollBlock>
         {
             new PollBlock(D4002_BatchIssueFlag, 2, BlockType.DInt),
+            new PollBlock(D4004_QrUploadFlag, 2, BlockType.DInt),
             new PollBlock(D4010_WithstandFlag, 2, BlockType.DInt),
             new PollBlock(D4014_WithstandResult, 2, BlockType.DInt),
             new PollBlock(D4020_PressureFlag, 2, BlockType.DInt),
@@ -85,9 +91,9 @@ namespace LianDian.Comm
         /// <summary>逻辑 D 号 → Modbus 物理寄存器索引（Mitsubishi 约定 D1=寄存器0）。</summary>
         public static int StringCount(int address, LianDian.Core.Config.PlcConfig config)
         {
-            if (address == D4100_BatchIssueNo || address == D4200_WithstandBatchNo || address == D4300_PressureBatchNo)
+            if (address == D4100_BatchIssueNo || address == D4200_WithstandBatchNo || address == D4300_PressureBatchNo || address == D4400_QrBatchNo)
                 return config.BatchStringRegisters;
-            if (address == D5700_BatchIssueDate || address == D5800_WithstandDate || address == D5900_PressureDate)
+            if (address == D5700_BatchIssueDate || address == D5800_WithstandDate || address == D5900_PressureDate || address == D6100_QrDate)
                 return config.DateStringRegisters;
             if (address == D6000_QrGrade) return config.QrGradeStringRegisters;
             return StringRegisterCounts[address];

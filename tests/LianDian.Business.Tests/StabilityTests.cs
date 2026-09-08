@@ -39,6 +39,111 @@ namespace LianDian.Business.Tests
         }
 
         [Fact]
+        public void NewestFirst_CountUnboundWithstand_IgnoresPressureAndQr()
+        {
+            var repo = Repository();
+            for (int n = 1; n <= 3; n++)
+            {
+                repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=n, ProductName="P", IssueTime=DateTime.Now });
+                repo.ClearPendingAck(4002, "26188", n);
+            }
+            repo.UpdateWithstand(new WithstandTestRecord { BatchDate="26188", BatchNo=3, Voltage=1, Resistance=2, Current=3, Result=2, UploadTime=DateTime.Now });
+            repo.BindQrGrade("26188", 3, "P", "A");
+            Assert.Equal(3, repo.QueryPage("26188", "26188", null, 0, 1).Single().BatchNo);
+            Assert.Equal(2, repo.QueryPage("26188", "26188", null, 1, 1).Single().BatchNo);
+            Assert.Equal(2L, repo.CountUnboundWithstand());
+            var complete = repo.QueryPage("26188", "26188", null, 0, 1).Single();
+            Assert.Equal(3, complete.BatchNo);
+            Assert.Null(complete.Pressure);
+            Assert.Null(complete.PressureResult);
+            Assert.Equal(new[] { 3, 2, 1 }, repo.ExportRows("26188", "26188", null).Select(r => r.BatchNo));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void QrUpload_BindsExactDateAndRecoversAfterAckFailure(bool sqlite)
+        {
+            IBatchRepository repo = sqlite ? (IBatchRepository)Repository() : new InMemoryBatchRepository();
+            var store = (IPendingPlcAckStore)repo;
+            foreach (var date in new[] { "26188", "26189" })
+            {
+                repo.Insert(new BatchRecord { BatchDate=date, BatchNo=1, ProductName="P", IssueTime=DateTime.Now });
+                store.ClearPendingAck(4002, date, 1);
+            }
+            var plc = new FakePlcClient();
+            plc.SetDInt(4004, 1);
+            plc.SetString(4400, "00001", 3);
+            plc.SetString(6100, "26188", 3);
+            plc.SetString(6000, "F", 1);
+            plc.SetString(6200, "P", 10);
+            var snapshot = new FakeSnapshot(); snapshot.SetDInt(4004, 1);
+            bool fail = true;
+            plc.BeforeWriteDInt = (address, value) =>
+            {
+                if (address != 4004) return;
+                Assert.Equal("F", repo.Query("26188", "26188", null).Single().QrGrade);
+                if (fail) { fail=false; throw new InvalidOperationException("通信中断"); }
+            };
+            using (var service = new QrUploadService(plc, snapshot, repo, new BusinessConfig(), new PlcConfig()))
+            {
+                service.EnableForTest(); service.TickOnce();
+                Assert.NotNull(store.GetPendingAck(4004));
+                Assert.Empty(plc.Writes);
+            }
+            // 重建服务模拟进程重启，使用已持久化的数据库状态恢复。
+            using (var service = new QrUploadService(plc, snapshot, repo, new BusinessConfig(), new PlcConfig()))
+            {
+                service.EnableForTest(); service.TickOnce(); service.TickOnce();
+                Assert.Null(store.GetPendingAck(4004));
+                Assert.Single(plc.Writes);
+                Assert.Equal(2, plc.ReadDInt(4004));
+                Assert.Null(repo.Query("26189", "26189", null).Single().QrGrade);
+            }
+        }
+
+        [Theory]
+        [InlineData("26188", "00001", "G")]
+        [InlineData("26188", "00002", "A")]
+        [InlineData("26189", "00001", "A")]
+        [InlineData("26000", "00001", "A")]
+        [InlineData("26188", "1", "A")]
+        public void QrUpload_InvalidOrMissingBatchDoesNotAck(string date, string batch, string grade)
+        {
+            var repo = Repository();
+            repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=1, IssueTime=DateTime.Now });
+            var plc = new FakePlcClient(); plc.SetDInt(4004, 1);
+            plc.SetString(6100, date, 3); plc.SetString(4400, batch, 3); plc.SetString(6000, grade, 1);
+            plc.SetString(6200, "P", 10);
+            var snapshot = new FakeSnapshot(); snapshot.SetDInt(4004, 1);
+            using (var service = new QrUploadService(plc, snapshot, repo, new BusinessConfig(), new PlcConfig()))
+            {
+                service.EnableForTest(); service.TickOnce();
+                Assert.Empty(plc.Writes);
+                Assert.Null(repo.GetPendingAck(4004));
+                Assert.Null(repo.Query("26188", "26188", null).Single().QrGrade);
+            }
+        }
+
+        [Fact]
+        public void QrBinding_DoesNotOverwriteDifferentGradeOrPendingBatch()
+        {
+            var repo = Repository();
+            for (int n=1; n<=2; n++)
+            {
+                repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=n, ProductName="P", IssueTime=DateTime.Now });
+                repo.ClearPendingAck(4002, "26188", n);
+            }
+            Assert.Equal(1, repo.BindQrGrade("26188", 1, "P", "A"));
+            Assert.Throws<InvalidOperationException>(() => repo.BindQrGrade("26188", 2, "P", "B"));
+            Assert.Null(repo.Query("26188", "26188", null).Single(r => r.BatchNo==2).QrGrade);
+            Assert.Equal(0, repo.BindQrGrade("26188", 1, "P", "B"));
+            Assert.Equal("A", repo.Query("26188", "26188", null).Single(r => r.BatchNo==1).QrGrade);
+            repo.ClearPendingAck(4004, "26188", 1);
+            Assert.Equal(0, repo.BindQrGrade("26188", 2, "WRONG", "B"));
+        }
+
+        [Fact]
         public async Task SerialTimerDoesNotOverlapAndDisposeDrains()
         {
             int active=0, overlap=0, calls=0;
@@ -228,6 +333,93 @@ namespace LianDian.Business.Tests
             };
             using (var plc = new PlcService(new PlcConfig { ReadIntervalMs = 60000 }, client))
             { plc.Start(); plc.PollOnce(); Assert.False(plc.TryGetDInt(4002, out _)); }
+        }
+
+        [Fact]
+        public void ProductCatalogIsMaintainedWithoutScanningFactTableForDropdown()
+        {
+            var repo = Repository();
+            repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=1, ProductName="PRODUCT-B", IssueTime=DateTime.Now });
+            repo.ClearPendingAck(4002,"26188",1);
+            repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=2, ProductName="PRODUCT-A", IssueTime=DateTime.Now });
+            Assert.Equal(new[] { "PRODUCT-A", "PRODUCT-B" }, repo.GetDistinctProductNames());
+            var context = new DataContext(Config());
+            Assert.Equal(2L, Convert.ToInt64(context.ExecuteScalar("SELECT COUNT(*) FROM product_catalog")));
+        }
+
+        [Fact]
+        public void ConfiguredGbkEncodingRoundTripsProductionCodec()
+        {
+            var encoding = ModbusTcpPlcClient.ResolveEncoding("GBK");
+            ushort[] registers = ModbusCodec.EncodeString("联电", 3, encoding, true);
+            Assert.Equal("联电", ModbusCodec.DecodeString(registers, 0, 3, encoding, true));
+            Assert.NotEqual(ModbusCodec.EncodeString("联电", 3, System.Text.Encoding.UTF8, true), registers);
+        }
+
+        [Fact]
+        public void IdleFlagsReconcilePersistedAcksForAllChannels()
+        {
+            var repo = Repository();
+            repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=1, ProductName="P1", IssueTime=DateTime.Now });
+            var batchSnapshot = new FakeSnapshot(); batchSnapshot.SetDInt(4002,0);
+            using (var batch = new BatchService(new FakePlcClient(),batchSnapshot,repo,new BusinessConfig(),()=>new DateTime(2026,7,7)))
+            { batch.InitFromDatabase(); batch.EnableForTest(); batch.TickOnce(); }
+            Assert.Null(repo.GetPendingAck(4002));
+
+            repo.UpdateWithstand(new WithstandTestRecord { BatchDate="26188",BatchNo=1,Voltage=220,Resistance=10,Current=1,Result=1 });
+            var withstandSnapshot = new FakeSnapshot(); withstandSnapshot.SetDInt(4010,0);
+            using (var service = new WithstandService(new FakePlcClient(),withstandSnapshot,repo,new BusinessConfig()))
+            { service.EnableForTest(); service.TickOnce(); }
+            Assert.Null(repo.GetPendingAck(4010));
+
+            repo.UpdatePressure(new PressureTestRecord { BatchDate="26188",BatchNo=1,Pressure=2,Result=1 });
+            var pressureSnapshot = new FakeSnapshot(); pressureSnapshot.SetDInt(4020,0);
+            using (var service = new PressureService(new FakePlcClient(),pressureSnapshot,repo,new BusinessConfig()))
+            { service.EnableForTest(); service.TickOnce(); }
+            Assert.Null(repo.GetPendingAck(4020));
+        }
+
+        [Fact]
+        public void LockedOldBackupDoesNotTurnNewBackupIntoFailure()
+        {
+            Repository(); var cfg=Config(); Directory.CreateDirectory(cfg.BackupDirectory);
+            string old=Path.Combine(cfg.BackupDirectory,"lian-dian-backup-20000101-000000-"+Guid.NewGuid().ToString("N")+".db");
+            File.WriteAllBytes(old,new byte[] { 1 }); File.SetLastWriteTimeUtc(old,DateTime.UtcNow.AddDays(-30));
+            using(var locked=new FileStream(old,FileMode.Open,FileAccess.ReadWrite,FileShare.None))
+            using(var backup=new DatabaseBackupService(new DataContext(cfg),cfg))
+            {
+                string saved=backup.BackupNow();
+                Assert.True(File.Exists(saved)); Assert.True(File.Exists(old));
+                Assert.True(backup.LastSuccess>DateTime.MinValue); Assert.Null(backup.LastError);
+            }
+        }
+
+        [Fact]
+        public void AckReconciliationRetriesAfterTransientClearFailure()
+        {
+            var repo=new InMemoryBatchRepository();
+            repo.Insert(new BatchRecord {BatchDate="26188",BatchNo=1,ProductName="P1"});
+            repo.FailNextClearAck=true;
+            var snapshot=new FakeSnapshot(); snapshot.SetDInt(4002,0);
+            int errors=0;
+            using(var service=new BatchService(new FakePlcClient(),snapshot,repo,new BusinessConfig(),()=>new DateTime(2026,7,7)))
+            {
+                service.ErrorOccurred+=(s,e)=>errors++;
+                service.InitFromDatabase(); service.EnableForTest();
+                service.TickOnce(); Assert.NotNull(repo.GetPendingAck(4002)); Assert.Equal(1,errors);
+                service.TickOnce(); Assert.Null(repo.GetPendingAck(4002));
+            }
+        }
+
+        [Fact]
+        public void TestFakesMatchMissingAndCaseSensitiveContracts()
+        {
+            var snapshot=new FakeSnapshot();
+            Assert.False(snapshot.TryGetDInt(4030,out _)); Assert.False(snapshot.TryGetWord(4030,out _));
+            var repo=new InMemoryBatchRepository();
+            repo.Insert(new BatchRecord {BatchDate="26188",BatchNo=1,ProductName="Product-A"});
+            Assert.False(repo.ExistsByProduct("26188",1,"product-a"));
+            Assert.NotNull(repo.GetPendingAck(4002));
         }
 
         [Fact]
