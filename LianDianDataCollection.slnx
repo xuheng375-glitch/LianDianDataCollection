@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LianDian.Core/LianDian.Core.csproj" />
+    <Project Path="src/LianDian.Comm/LianDian.Comm.csproj" />
+    <Project Path="src/LianDian.Data/LianDian.Data.csproj" />
+    <Project Path="src/LianDian.Business/LianDian.Business.csproj" />
+    <Project Path="src/LianDian.UI/LianDian.UI.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LianDian.Business.Tests/LianDian.Business.Tests.csproj" />
+  </Folder>
+</Solution>

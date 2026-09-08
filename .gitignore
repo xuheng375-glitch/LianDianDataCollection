@@ -1,0 +1,23 @@
+bin/
+obj/
+.vs/
+Logs/
+.tools/
+*.user
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.partial
+Data/
+Backups/
+TestResults/
+artifacts/
+docs/*preview*.png
+docs/*test*.png
+docs/ui-layout-*.png
+docs/*.png
+docs/*.html
+# 现场产品资料不随源码上传
+Instruction/
+ProductPIC/

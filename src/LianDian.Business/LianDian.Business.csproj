@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+    <RootNamespace>LianDian.Business</RootNamespace>
+    <AssemblyName>LianDian.Business</AssemblyName>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LianDian.Core\LianDian.Core.csproj" />
+    <ProjectReference Include="..\LianDian.Comm\LianDian.Comm.csproj" />
+    <ProjectReference Include="..\LianDian.Data\LianDian.Data.csproj" />
+  </ItemGroup>
+</Project>

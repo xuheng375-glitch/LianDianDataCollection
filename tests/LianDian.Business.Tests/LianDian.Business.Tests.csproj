@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+    <RootNamespace>LianDian.Business.Tests</RootNamespace>
+    <AssemblyName>LianDian.Business.Tests</AssemblyName>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LianDian.Core\LianDian.Core.csproj" />
+    <ProjectReference Include="..\..\src\LianDian.Comm\LianDian.Comm.csproj" />
+    <ProjectReference Include="..\..\src\LianDian.Data\LianDian.Data.csproj" />
+    <ProjectReference Include="..\..\src\LianDian.Business\LianDian.Business.csproj" />
+  </ItemGroup>
+</Project>

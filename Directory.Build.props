@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- 固定原生 SQLite 架构，避免 AnyCPU 在不同宿主中加载错误的 DLL。 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+</Project>

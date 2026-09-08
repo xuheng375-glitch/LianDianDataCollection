@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>10.0</LangVersion>
+    <RootNamespace>LianDian.UI</RootNamespace>
+    <AssemblyName>LianDian.UI</AssemblyName>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SunnyUI" Version="3.7.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LianDian.Core\LianDian.Core.csproj" />
+    <ProjectReference Include="..\LianDian.Comm\LianDian.Comm.csproj" />
+    <ProjectReference Include="..\LianDian.Data\LianDian.Data.csproj" />
+    <ProjectReference Include="..\LianDian.Business\LianDian.Business.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\config\app.ini">
+      <Link>config\app.ini</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+</Project>
