@@ -190,8 +190,10 @@ namespace LianDian.Business.Services
                 return true;
             }
 
-            if (string.IsNullOrWhiteSpace(productName) || !voltage.HasValue || !resistance.HasValue ||
-                !current.HasValue || (result != 1 && result != 2)) return false;
+            if (!voltage.HasValue) throw new InvalidOperationException("D5300电压未有效读取或数值格式无效/超出范围，保持上传标志位1。");
+            if (!resistance.HasValue) throw new InvalidOperationException("D5400电阻未有效读取或数值格式无效/超出范围，保持上传标志位1。");
+            if (!current.HasValue) throw new InvalidOperationException("D5500电流未有效读取或数值格式无效/超出范围，保持上传标志位1。");
+            if (string.IsNullOrWhiteSpace(productName) || (result != 1 && result != 2)) return false;
             int affected = _repo.UpdateWithstand(payload);
             if (affected <= 0)
             {

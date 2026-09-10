@@ -6,17 +6,17 @@ namespace LianDian.UI.Theme
     /// <summary>工业深色主题（对齐 AirtightInspection/Forms/IndustrialTheme.cs）。</summary>
     public static class FlatTheme
     {
-        public static readonly Color Bg = Color.FromArgb(11, 17, 23);
-        public static readonly Color Bg2 = Color.FromArgb(14, 23, 30);
-        public static readonly Color Panel = Color.FromArgb(19, 29, 38);
-        public static readonly Color Panel2 = Color.FromArgb(9, 16, 22);
-        public static readonly Color Surface = Color.FromArgb(26, 39, 50);
-        public static readonly Color Header = Color.FromArgb(32, 48, 61);
-        public static readonly Color Border = Color.FromArgb(73, 94, 105);
-        public static readonly Color BorderSoft = Color.FromArgb(46, 62, 73);
+        public static readonly Color Bg = Color.FromArgb(17, 36, 51);
+        public static readonly Color Bg2 = Color.FromArgb(19, 41, 58);
+        public static readonly Color Panel = Color.FromArgb(22, 45, 62);
+        public static readonly Color Panel2 = Color.FromArgb(18, 38, 54);
+        public static readonly Color Surface = Color.FromArgb(31, 59, 78);
+        public static readonly Color Header = Color.FromArgb(31, 57, 75);
+        public static readonly Color Border = Color.FromArgb(54, 82, 101);
+        public static readonly Color BorderSoft = Color.FromArgb(40, 65, 83);
 
-        public static readonly Color Cyan = Color.FromArgb(0, 188, 212);
-        public static readonly Color CyanDark = Color.FromArgb(0, 109, 128);
+        public static readonly Color Cyan = Color.FromArgb(40, 192, 214);
+        public static readonly Color CyanDark = Color.FromArgb(12, 133, 156);
         public static readonly Color Blue = Color.FromArgb(0, 188, 212);
         public static readonly Color Steel = Color.FromArgb(145, 166, 177);
         public static readonly Color Ok = Color.FromArgb(57, 211, 129);
@@ -49,15 +49,17 @@ namespace LianDian.UI.Theme
 
         public static readonly Font Mono = new Font("Consolas", 10.5F);
         public static readonly Font MonoSmall = new Font("Consolas", 8.5F);
-        public static readonly Font MonoLarge = new Font("Consolas", 42F, FontStyle.Bold);
-        public static readonly Font Ui = new Font("Microsoft YaHei UI", 10F);
-        public static readonly Font UiSmall = new Font("Microsoft YaHei UI", 8.5F);
-        public static readonly Font UiBold = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold);
-        public static readonly Font TitleFont = new Font("Microsoft YaHei UI", 15F, FontStyle.Bold);
-        public static readonly Font ClockFont = new Font("Consolas", 12F);
+        public static readonly Font TableUi = new Font("Microsoft YaHei UI", 10F);
+        public static readonly Font TableSmall = new Font("Microsoft YaHei UI", 8.5F);
+        public static readonly Font MonoLarge = new Font("SimSun", 42F, FontStyle.Bold);
+        public static readonly Font Ui = new Font("SimSun", 10F);
+        public static readonly Font UiSmall = new Font("SimSun", 9F);
+        public static readonly Font UiBold = new Font("SimSun", 12F, FontStyle.Bold);
+        public static readonly Font TitleFont = new Font("SimSun", 15F, FontStyle.Bold);
+        public static readonly Font ClockFont = new Font("SimSun", 12F);
 
         public const int BrandHeight = 72;
         public const int CaptionHeight = 46;
-        public const int Radius = 0;
+        public const int Radius = 6;
     }
 }

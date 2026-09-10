@@ -4,7 +4,7 @@
 #ifndef PackageDir
   #error PackageDir is required
 #endif
-#define AppVersion "1.1.0"
+#define AppVersion "1.2.0"
 [Setup]
 AppId={{F47CC08E-308D-45FD-A1DD-6FDDA408097A}
 AppName=联电数据收集
@@ -27,6 +27,9 @@ RestartApplications=no
 [Files]
 Source: "{#PayloadDir}\*"; DestDir: "{app}"; Excludes: "config\*,Data\*,Logs\*,ProductPIC\*,Instruction\*,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#PayloadDir}\config\app.ini"; DestDir: "{app}\config"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\assets\ProductImages\DH280GM.png"; DestDir: "{app}\ProductPIC"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\assets\ProductImages\DH280TM.png"; DestDir: "{app}\ProductPIC"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\assets\ProductImages\ES11.png"; DestDir: "{app}\ProductPIC"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Dirs]
 Name: "{app}\Data"; Flags: uninsneveruninstall

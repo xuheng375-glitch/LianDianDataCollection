@@ -168,6 +168,11 @@ namespace LianDian.Business.Services
 
         private bool ProcessIssueCore(string batchDate, int batchNo, string employeeNo, string productName)
         {
+            if (string.IsNullOrWhiteSpace(productName) || productName.Trim() == "0")
+                throw new InvalidOperationException("D5000产品名称不能为空或为0，暂停批次下发，保持D4002=1。");
+            int employee;
+            if (!int.TryParse(employeeNo, NumberStyles.Integer, CultureInfo.InvariantCulture, out employee) || employee == 0)
+                throw new InvalidOperationException("D4030员工工号未有效读取或为0，暂停批次下发，保持D4002=1。");
             // 写批次下发日期/批次号
             if (batchNo < 1 || batchNo > 99999) throw new InvalidOperationException("批次号必须为00001～99999。");
             if (!PlcText.IsDate(batchDate)) throw new InvalidOperationException("日期必须为有效的yyDDD编码。");

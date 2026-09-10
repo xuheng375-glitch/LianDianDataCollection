@@ -13,6 +13,7 @@ namespace LianDian.UI.Forms
         public ExitConfirmForm(string heading, string body, bool allowCancel)
         {
             FlatTheme.ApplyForm(this);
+            BackColor = Color.FromArgb(238, 243, 247);
             Text = "退出确认";
             FormBorderStyle = FormBorderStyle.None;
             AllowShowTitle = false;
@@ -27,7 +28,7 @@ namespace LianDian.UI.Forms
             ClientSize = new Size(480, 238);
 
             var title = new UILabel { Text = heading, Bounds = new Rectangle(28, 22, 420, 32), Font = FlatTheme.UiBold };
-            FlatTheme.ApplyLabel(title, FlatTheme.Text, FlatTheme.Bg);
+            FlatTheme.ApplyLabel(title, Color.FromArgb(30, 51, 68), BackColor);
             var message = new UILabel
             {
                 Text = body,
@@ -35,7 +36,7 @@ namespace LianDian.UI.Forms
                 Font = FlatTheme.Ui,
                 TextAlign = ContentAlignment.MiddleLeft
             };
-            FlatTheme.ApplyLabel(message, FlatTheme.Text, FlatTheme.Bg);
+            FlatTheme.ApplyLabel(message, Color.FromArgb(30, 51, 68), BackColor);
             var cancel = MakeButton("取消", new Rectangle(224, 174, 104, 38), DialogResult.Cancel);
             var confirm = MakeButton("确认退出", new Rectangle(344, 174, 108, 38), DialogResult.OK);
             confirm.RectColor = FlatTheme.Cyan;
@@ -54,8 +55,8 @@ namespace LianDian.UI.Forms
                 StyleCustomMode = true, Style = UIStyle.Custom,
                 Text = text, Bounds = bounds, Font = FlatTheme.Ui,
                 Radius = FlatTheme.Radius,
-                FillColor = FlatTheme.Surface, FillColor2 = FlatTheme.Surface,
-                ForeColor = FlatTheme.Text, RectColor = FlatTheme.Border,
+                FillColor = Color.White, FillColor2 = Color.White,
+                ForeColor = Color.FromArgb(30, 51, 68), RectColor = FlatTheme.Border,
                 FillHoverColor = FlatTheme.CyanDark, FillPressColor = FlatTheme.CyanDark,
                 ForeHoverColor = Color.White, ForePressColor = Color.White,
                 RectHoverColor = FlatTheme.Cyan, RectPressColor = FlatTheme.Cyan,

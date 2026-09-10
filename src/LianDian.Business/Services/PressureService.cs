@@ -129,9 +129,12 @@ namespace LianDian.Business.Services
             string batchText;
             int batchNo;
             int result;
-            if (!Snapshot.TryGetString(RegisterMap.D5900_PressureDate, out date) || !PlcText.IsDate(date)) return false;
-            if (!Snapshot.TryGetString(RegisterMap.D4300_PressureBatchNo, out batchText) || !PlcText.TryBatch(batchText, out batchNo)) return false;
-            if (!Snapshot.TryGetDInt(RegisterMap.D4024_PressureResult, out result)) return false;
+            if (!Snapshot.TryGetString(RegisterMap.D5900_PressureDate, out date) || !PlcText.IsDate(date))
+                throw new InvalidOperationException("气密上传：D5900日期未有效读取或格式错误，保持D4020=1。");
+            if (!Snapshot.TryGetString(RegisterMap.D4300_PressureBatchNo, out batchText) || !PlcText.TryBatch(batchText, out batchNo))
+                throw new InvalidOperationException("气密上传：D4300批次号未有效读取或不是五位数字，保持D4020=1。");
+            if (!Snapshot.TryGetDInt(RegisterMap.D4024_PressureResult, out result))
+                throw new InvalidOperationException("气密上传：D4024结果未有效读取，保持D4020=1。");
 
             string productName = null;
             string product;
@@ -157,7 +160,10 @@ namespace LianDian.Business.Services
             if (!_repo.ExistsByProduct(batchDate, batchNo, productName))
             {
                 Log.WarnFormat("气压数据比对不一致：{0}-{1} 产品={2}，保持标志位=1", batchDate, batchNo, productName);
-                DataMismatch?.Invoke(this, new DataMismatchEventArgs("气压数据与批次记录不一致", payload));
+                string reason = _repo.Exists(batchDate, batchNo) ? "产品名称不匹配" : "未找到对应日期和批次号的记录";
+                DataMismatch?.Invoke(this, new DataMismatchEventArgs(
+                    "气密上传不匹配：" + reason + "；D5900=" + batchDate + "，D4300=" + batchNo.ToString("D5") +
+                    "，D5200=" + (productName ?? "<未读取>") + "；保持D4020=1。", payload));
                 return false;
             }
 
@@ -178,11 +184,14 @@ namespace LianDian.Business.Services
                 return true;
             }
 
-            if (string.IsNullOrWhiteSpace(productName) || !pressure.HasValue || (result != 1 && result != 2)) return false;
+            if (!pressure.HasValue) throw new InvalidOperationException("D5600气压未有效读取或数值格式无效/超出范围，保持上传标志位1。");
+            if (string.IsNullOrWhiteSpace(productName) || (result != 1 && result != 2))
+                throw new InvalidOperationException("气密上传：产品名称为空或D4024结果不是1/2，保持D4020=1。");
             int affected = _repo.UpdatePressure(payload);
             if (affected <= 0)
             {
                 Log.WarnFormat("气压 UPDATE 未命中记录：{0}-{1}", batchDate, batchNo);
+                ErrorOccurred?.Invoke(this, new UploadErrorEventArgs("气密上传未更新到对应记录：" + batchDate + "-" + batchNo.ToString("D5") + "，保持D4020=1。"));
                 return false;
             }
             _plc.WriteDInt(RegisterMap.D4020_PressureFlag, (int)FlagState.Success);

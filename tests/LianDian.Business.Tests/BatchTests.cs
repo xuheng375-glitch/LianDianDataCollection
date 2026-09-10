@@ -49,6 +49,35 @@ namespace LianDian.Business.Tests
             Assert.Equal(6, service.CurrentBatchNo);
         }
 
+        [Theory]
+        [InlineData("0", 600249)]
+        [InlineData(" 0 ", 600249)]
+        [InlineData("", 600249)]
+        [InlineData("P1", 0)]
+        public void InvalidIdentityBlocksIssueAndRetriesAfterCorrection(string product, int employee)
+        {
+            var repo = new InMemoryBatchRepository();
+            var plc = new FakePlcClient();
+            var snapshot = new FakeSnapshot();
+            snapshot.SetDInt(RegisterMap.D4002_BatchIssueFlag, 1);
+            snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, employee);
+            snapshot.SetString(RegisterMap.D5000_ProductName, product);
+            using (var service = new BatchService(plc, snapshot, repo, Config(), () => new DateTime(2026, 7, 7)))
+            {
+                service.InitFromDatabase(); service.EnableForTest();
+                service.TickOnce();
+                Assert.Empty(repo.Records);
+                Assert.Empty(plc.StringWrites);
+                Assert.Empty(plc.Writes);
+                Assert.Equal(1, service.CurrentBatchNo);
+                snapshot.SetDInt(RegisterMap.D4030_EmployeeNo, 600249);
+                snapshot.SetString(RegisterMap.D5000_ProductName, "P1");
+                service.TickOnce();
+                Assert.Single(repo.Records);
+                Assert.Contains(plc.Writes, w => w.Address == 4002 && w.Value == 2);
+            }
+        }
+
         [Fact]
         public void ProcessIssue_WritesRegisters_InsertsRecord_SetsFlag2_Increments()
         {

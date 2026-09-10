@@ -1,9 +1,14 @@
 param([string]$Compiler = "$PSScriptRoot\..\.tools\InnoSetup\ISCC.exe")
 $ErrorActionPreference = 'Stop'
 $packageRoot = Split-Path -Parent $PSScriptRoot
+foreach ($productImage in @('DH280GM.png','DH280TM.png','ES11.png')) {
+    if (!(Test-Path -LiteralPath (Join-Path $packageRoot "assets\ProductImages\$productImage"))) {
+        throw "Missing installer product image: $productImage"
+    }
+}
 $packageOutput = Join-Path $packageRoot ('artifacts\Installer-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $packagePayload = Join-Path $packageOutput 'payload'
-& dotnet build (Join-Path $packageRoot 'src\LianDian.UI\LianDian.UI.csproj') -c Release "-p:OutputPath=$packagePayload/" '-p:Version=1.1.0' --nologo
+& dotnet build (Join-Path $packageRoot 'src\LianDian.UI\LianDian.UI.csproj') -c Release "-p:OutputPath=$packagePayload/" '-p:Version=1.2.0' --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 foreach ($packageDependency in @('LianDian.UI.exe','System.Data.SQLite.dll','e_sqlite3.dll','config\app.ini')) {
     if (!(Test-Path (Join-Path $packagePayload $packageDependency))) { throw "Missing: $packageDependency" }

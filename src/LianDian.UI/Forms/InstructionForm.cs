@@ -42,7 +42,7 @@ namespace LianDian.UI.Forms
             ClientSize = new Size(SmallWidth, SmallHeight);
             BackColor = FlatTheme.Bg;
             ForeColor = FlatTheme.Text;
-            Font = new Font("Microsoft YaHei UI", 9F);
+            Font = new Font("SimSun", 9F);
             Padding = new Padding(1);
             LoadImages(instructionDir, productName);
             BuildUi();
@@ -118,9 +118,9 @@ namespace LianDian.UI.Forms
         private void BuildUi()
         {
             Controls.Add(MakeLabel("作业指导书", new Rectangle(24, 14, 200, 28), FlatTheme.Text,
-                new Font("Microsoft YaHei UI", 13F, FontStyle.Bold)));
+                new Font("SimSun", 13F, FontStyle.Bold)));
             _pageLabel.TextAlign = ContentAlignment.MiddleCenter;
-            _pageLabel.Font = FlatTheme.Mono;
+            _pageLabel.Font = FlatTheme.Ui;
             _pageLabel.ForeColor = FlatTheme.Text2;
             _pageLabel.BackColor = FlatTheme.Bg;
             _pageLabel.StyleCustomMode = true;

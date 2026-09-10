@@ -62,8 +62,22 @@ try {
     if ($uiCsv.Invoke($null,@('=1+1')) -ne '"''=1+1"') { throw 'CSV formula guard failed' }
     Write-Output 'Instruction matching, fit and CSV checks passed (no PLC started).'
     $uiGrid = $uiMain.GetType().GetField('_grid',$uiFlags).GetValue($uiMain)
+    $uiLog = $uiMain.GetType().GetField('_eventLog',$uiFlags).GetValue($uiMain)
+    $uiPause = $uiMain.GetType().GetField('_pauseLogButton',$uiFlags).GetValue($uiMain)
+    $uiLogCount = $uiLog.Rows.Count
+    $uiPause.PerformClick()
+    $uiMain.GetType().GetMethod('AddImportantLog',$uiFlags).Invoke($uiMain,@('回归检查：暂停期间记录成功'))
+    if ($uiLog.Rows.Count -ne $uiLogCount) { throw 'Paused log view changed' }
+    $uiPause.PerformClick()
+    if ($uiLog.Rows.Count -ne $uiLogCount + 1) { throw 'Paused log was lost' }
+    Write-Output 'Log pause and resume passed.'
     $uiProduct = $uiMain.GetType().GetField('_productImage',$uiFlags).GetValue($uiMain)
     $uiProduct.BackgroundImage = [LianDian.UI.ImageResolver]::LoadSafely((Join-Path $uiInstructionDir 'PREVIEW-1.png'))
+    $uiSavedProduct = Join-Path $uiRoot 'assets\ProductImages\DH280GM.png'
+    if (Test-Path -LiteralPath $uiSavedProduct) {
+        $uiProduct.BackgroundImage.Dispose()
+        $uiProduct.BackgroundImage = [LianDian.UI.ImageResolver]::LoadSafely($uiSavedProduct)
+    }
     [void]$uiGrid.Rows.Add([object[]]@('26250','00005','DH280GM','600249','41244.00','241124.00','2412412.00','OK','12223.00','OK','2026-09-07 21:45:08','A'))
     $uiMain.GetType().GetField('_countLabel',$uiFlags).GetValue($uiMain).Text = '1 record (preview)'
     foreach ($uiField in @('_productValue','_employeeValue','_dateValue','_batchNoLabel')) {

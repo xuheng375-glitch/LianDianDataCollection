@@ -16,7 +16,8 @@ namespace LianDian.Core
             if (string.IsNullOrEmpty(value)) return null;
             decimal result;
             if (decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint |
-                NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out result))
+                NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite | NumberStyles.AllowExponent,
+                CultureInfo.InvariantCulture, out result))
                 return result;
             return null;
         }

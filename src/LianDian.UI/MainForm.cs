@@ -29,6 +29,14 @@ namespace LianDian.UI
 
         private readonly UILedBulb _plcLamp = new UILedBulb();
         private readonly UILedBulb _dbLamp = new UILedBulb();
+        private readonly UILabel _plcText = new UILabel();
+        private readonly UILabel _dbText = new UILabel();
+        private readonly UILabel _plcCaption = new UILabel();
+        private readonly UILabel _dbCaption = new UILabel();
+        private readonly UIPanel _statusDivider = new UIPanel();
+        private readonly UIPanel _clockDivider = new UIPanel();
+        private readonly UILabel _imageCaption = new UILabel();
+        private readonly UISymbolLabel _unboundIcon = new UISymbolLabel();
         private readonly UILabel _clockLabel = new UILabel();
         private readonly UILabel _clockDateLabel = new UILabel();
         private readonly UILabel _batchNoLabel = new UILabel();
@@ -41,6 +49,12 @@ namespace LianDian.UI
         private readonly UIDatePicker _toPicker = new UIDatePicker();
         private readonly UIComboBox _productCombo = new UIComboBox();
         private readonly UIDataGridView _grid = new UIDataGridView();
+        private static readonly Color Workspace = Color.FromArgb(238, 243, 247);
+        private static readonly Color Ink = Color.FromArgb(30, 51, 68);
+        private static readonly Color LightBorder = Color.FromArgb(209, 222, 231);
+        private bool _logPaused;
+        private readonly Queue<string> _pausedLogs = new Queue<string>();
+        private UIButton _pauseLogButton;
         private readonly Font _ngBadgeFont = new Font("Consolas", 11F, FontStyle.Bold);
         private readonly UILabel _unboundLabel = new UILabel();
         private readonly UIDataGridView _eventLog = new UIDataGridView();
@@ -84,7 +98,7 @@ namespace LianDian.UI
             ClientSize = new Size(1920, 1080);
             BackColor = FlatTheme.Bg;
             ForeColor = FlatTheme.Text;
-            Font = new Font("Microsoft YaHei UI", 9F);
+            Font = new Font("SimSun", 9F);
             Padding = new Padding(1);
             DoubleBuffered = true;
 
@@ -95,7 +109,13 @@ namespace LianDian.UI
             FlatTheme.ApplyLabel(_unboundLabel, FlatTheme.Text, FlatTheme.Panel);
             _unboundLabel.Font = FlatTheme.UiSmall;
             _unboundLabel.Text = "当前未绑定数据的数量：读取中";
-            _tablePanel.Controls.Add(_unboundLabel);
+            _queryPanel.Controls.Add(_unboundLabel);
+            _unboundIcon.Symbol = 61546;
+            _unboundIcon.SymbolSize = 22;
+            _unboundIcon.Text = "";
+            _unboundIcon.SymbolColor = Color.FromArgb(180, 110, 0);
+            _queryPanel.Controls.Add(_unboundIcon);
+            ApplyHybridTheme();
             WireEvents();
             AutoScaleMode = AutoScaleMode.None;
             MinimumSize = new Size(1280, 720);
@@ -124,6 +144,115 @@ namespace LianDian.UI
 
         public AppConfig Config => _manager.Config;
 
+        private void ApplyHybridTheme()
+        {
+            foreach (var panel in new[] { _queryPanel, _tablePanel })
+            {
+                StylePanel(panel, Color.White);
+                panel.BackColor = Workspace;
+                panel.RectColor = LightBorder;
+                panel.Radius = 6;
+                foreach (Control control in panel.Controls)
+                {
+                    if (control is UILabel label) FlatTheme.ApplyLabel(label, Ink, Color.White);
+                    if (control is UIPanel divider && divider.Height == 1)
+                    { StylePanel(divider, LightBorder); divider.RectColor = LightBorder; }
+                    if (control is UIButton button)
+                    {
+                        button.BackColor = Color.White;
+                        button.Radius = 10;
+                        button.FillColor = button.FillColor2 = Color.White;
+                        button.ForeColor = Ink;
+                        button.RectColor = LightBorder;
+                        button.FillDisableColor = Workspace;
+                        button.ForeDisableColor = Color.FromArgb(100, 119, 133);
+                        if (button.Text == "查 询")
+                        { button.FillColor = button.FillColor2 = FlatTheme.CyanDark; button.ForeColor = Color.White; }
+                    }
+                }
+            }
+            foreach (var picker in new[] { _fromPicker, _toPicker })
+            { picker.BackColor = Color.White; picker.FillColor = Color.White; picker.ForeColor = Ink; picker.RectColor = LightBorder; }
+            _productCombo.BackColor = Color.White;
+            _productCombo.FillColor = _productCombo.ItemFillColor = Color.White;
+            _productCombo.ForeColor = _productCombo.ItemForeColor = Ink;
+            _productCombo.RectColor = _productCombo.ItemRectColor = LightBorder;
+            _productCombo.ItemHoverColor = Workspace;
+            _grid.BackgroundColor = Color.FromArgb(250, 252, 254);
+            _grid.GridColor = LightBorder;
+            _grid.DefaultCellStyle.BackColor = Color.White;
+            _grid.DefaultCellStyle.ForeColor = Ink;
+            _grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(229, 245, 249);
+            _grid.DefaultCellStyle.SelectionForeColor = Ink;
+            _grid.DefaultCellStyle.Padding = new Padding(8, 0, 8, 0);
+            _grid.RowsDefaultCellStyle = _grid.DefaultCellStyle.Clone();
+            _grid.AlternatingRowsDefaultCellStyle = _grid.DefaultCellStyle.Clone();
+            _grid.StripeEvenColor = Color.White;
+            _grid.StripeOddColor = Color.FromArgb(247, 250, 252);
+            _grid.AlternatingRowsDefaultCellStyle.BackColor = _grid.StripeOddColor;
+            _grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(239, 244, 248);
+            _grid.ColumnHeadersDefaultCellStyle.ForeColor = Ink;
+            _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.FromArgb(239, 244, 248);
+            _grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Ink;
+            _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 0, 8, 0);
+            _grid.ColumnHeadersHeight = 60;
+            _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 24, 8, 0);
+            _grid.Paint += PaintBusinessGroups;
+            _grid.SelectionChanged += (s, e) => _grid.Invalidate(new Rectangle(0, 0, _grid.Width, _grid.ColumnHeadersHeight));
+            _grid.Scroll += (s, e) => _grid.Invalidate();
+            _grid.ScrollBarBackColor = Workspace;
+            _grid.ScrollBarColor = Color.FromArgb(143, 164, 179);
+            foreach (string name in new[] { "电压", "电阻", "电流", "气压" })
+                _grid.Columns[name].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            _grid.Columns["气压"].HeaderText = "气密值";
+            _grid.Columns["气压结果"].HeaderText = "气密结果";
+            FlatTheme.ApplyLabel(_unboundLabel, Color.FromArgb(160, 93, 0), Color.FromArgb(255, 246, 225));
+            _unboundLabel.TextAlign = ContentAlignment.MiddleLeft;
+            _unboundLabel.Padding = new Padding(38, 0, 0, 0);
+            _productImage.BackColor = Workspace;
+            _unboundLabel.Font = FlatTheme.Ui;
+            foreach (var panel in new[] { _batchPanel, _imagePanel, _logPanel }) panel.Radius = 6;
+            _grid.DefaultCellStyle.Font = FlatTheme.TableUi;
+            _grid.RowTemplate.Height = 40;
+            _eventLog.GridColor = FlatTheme.BorderSoft;
+            _eventLog.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            _eventLog.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+            _eventLog.ColumnHeadersDefaultCellStyle.SelectionForeColor = FlatTheme.Text2;
+            _eventLog.DefaultCellStyle.SelectionBackColor = FlatTheme.Surface;
+            _eventLog.RowsDefaultCellStyle.SelectionBackColor = FlatTheme.Surface;
+            _eventLog.AlternatingRowsDefaultCellStyle.SelectionBackColor = FlatTheme.Surface;
+            _eventLog.StripeEvenColor = _eventLog.StripeOddColor = FlatTheme.Panel;
+            _eventLog.ScrollBarStyleInherited = false;
+            _eventLog.ScrollBarBackColor = FlatTheme.Panel;
+            _eventLog.ScrollBarColor = FlatTheme.Border;
+            foreach (Control c in _brandPanel.Controls.OfType<UIButton>())
+                ((UIButton)c).RectColor = FlatTheme.Border;
+            FlatTheme.ApplyLabel(_statusLabel, FlatTheme.Text2, FlatTheme.Bg);
+            FlatTheme.ApplyLabel(_warnLabel, Color.FromArgb(180, 65, 30), Workspace);
+        }
+
+        private void PaintBusinessGroups(object sender, PaintEventArgs e)
+        {
+            string[][] groups = {
+                new[] { "批次信息", "时间", "批次日期", "批次号", "产品名称", "员工工号" },
+                new[] { "耐压数据", "电压", "电阻", "电流", "耐压结果" },
+                new[] { "气密数据", "气压", "气压结果" },
+                new[] { "二维码", "二维码等级" }
+            };
+            foreach (var group in groups)
+            {
+                int start = -_grid.HorizontalScrollingOffset;
+                foreach (var column in _grid.Columns.Cast<DataGridViewColumn>().Where(c => c.Visible && c.DisplayIndex < _grid.Columns[group[1]].DisplayIndex)) start += column.Width;
+                int width = group.Skip(1).Sum(name => _grid.Columns[name].Width);
+                var area = Rectangle.Intersect(new Rectangle(start, 0, width, 24), new Rectangle(0, 0, _grid.ClientSize.Width, 24));
+                if (area.Width <= 0) continue;
+                using (var brush = new SolidBrush(Color.FromArgb(227, 237, 245))) e.Graphics.FillRectangle(brush, area);
+                using (var pen = new Pen(LightBorder)) e.Graphics.DrawRectangle(pen, area);
+                TextRenderer.DrawText(e.Graphics, group[0], FlatTheme.TableSmall, area, Ink,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            }
+        }
+
         // ---------- 控件工厂 ----------
 
         private static UIPanel CreatePanel(Rectangle bounds, string caption, string captionEn, Color mark, string captionRight)
@@ -137,13 +266,13 @@ namespace LianDian.UI
             markCtl.RectColor = mark;
             p.Controls.Add(markCtl);
             p.Controls.Add(CreateLabel(caption, new Rectangle(34, 11, 240, 22), FlatTheme.Text,
-                new Font("Microsoft YaHei UI", 10F, FontStyle.Bold), ContentAlignment.MiddleLeft, FlatTheme.Panel));
+                new Font("SimSun", 10F, FontStyle.Bold), ContentAlignment.MiddleLeft, FlatTheme.Panel));
             if (!string.IsNullOrEmpty(captionEn))
                 p.Controls.Add(CreateLabel(captionEn, new Rectangle(p.Width - 190, 16, 170, 14), FlatTheme.Text3,
-                    FlatTheme.MonoSmall, ContentAlignment.MiddleRight, FlatTheme.Panel));
+                    FlatTheme.UiSmall, ContentAlignment.MiddleRight, FlatTheme.Panel));
             if (!string.IsNullOrEmpty(captionRight))
                 p.Controls.Add(CreateLabel(captionRight, new Rectangle(p.Width - 220, 16, 200, 14), FlatTheme.Text3,
-                    FlatTheme.MonoSmall, ContentAlignment.MiddleRight, FlatTheme.Panel));
+                    FlatTheme.UiSmall, ContentAlignment.MiddleRight, FlatTheme.Panel));
 
             var divider = new UIPanel { Bounds = new Rectangle(1, 46, p.Width - 2, 1) };
             StylePanel(divider, FlatTheme.BorderSoft);
@@ -181,14 +310,15 @@ namespace LianDian.UI
 
         private static UIButton CreateButton(string text, Rectangle bounds, bool primary)
         {
-            var btn = new UIButton
+            var btn = new UISymbolButton
             {
                 Text = text,
                 Bounds = bounds,
                 Font = FlatTheme.Ui,
                 StyleCustomMode = true,
                 Style = UIStyle.Custom,
-                Radius = FlatTheme.Radius,
+                Radius = 10,
+                BackColor = FlatTheme.Bg2,
                 FillColor = FlatTheme.Surface,
                 FillColor2 = FlatTheme.Surface,
                 RectColor = primary ? FlatTheme.Cyan : FlatTheme.CyanDark,
@@ -204,6 +334,10 @@ namespace LianDian.UI
                 ForeDisableColor = FlatTheme.Text2,
                 Cursor = Cursors.Hand
             };
+            btn.Symbol = text == "查 询" ? 61442 : text == "导出 CSV" ? 61639 :
+                text == "作业指导书" ? 61485 : text == "退出" ? 61579 :
+                text == "暂停滚动" ? 61516 : text == "上一页" ? 61700 : 61701;
+            btn.SymbolSize = 18;
             if (primary)
             {
                 btn.Font = new Font(FlatTheme.Ui.FontFamily, 11F, FontStyle.Bold);
@@ -224,9 +358,9 @@ namespace LianDian.UI
             accent.RectColor = FlatTheme.Cyan;
 
             var title = CreateLabel("联电数据收集", new Rectangle(22, 8, 260, 34), FlatTheme.Text,
-                new Font("Microsoft YaHei UI", 15F, FontStyle.Bold), ContentAlignment.MiddleLeft, FlatTheme.Bg2);
+                new Font("SimSun", 15F, FontStyle.Bold), ContentAlignment.MiddleLeft, FlatTheme.Bg2);
             var subtitle = CreateLabel("LIANDIAN DATA COLLECTION · SCADA", new Rectangle(24, 42, 360, 16), FlatTheme.Steel,
-                FlatTheme.MonoSmall, ContentAlignment.MiddleLeft, FlatTheme.Bg2);
+                FlatTheme.UiSmall, ContentAlignment.MiddleLeft, FlatTheme.Bg2);
             var divider = new UIPanel { Bounds = new Rectangle(250, 19, 1, 34) };
             StylePanel(divider, FlatTheme.Border);
             divider.RectColor = FlatTheme.Border;
@@ -248,7 +382,7 @@ namespace LianDian.UI
             _clockLabel.BackColor = FlatTheme.Bg2;
             _clockLabel.TextAlign = ContentAlignment.MiddleRight;
             _clockLabel.Bounds = new Rectangle(1470, 8, 210, 26);
-            _clockDateLabel.Font = FlatTheme.MonoSmall;
+            _clockDateLabel.Font = FlatTheme.UiSmall;
             _clockDateLabel.ForeColor = FlatTheme.Text3;
             _clockDateLabel.BackColor = FlatTheme.Bg2;
             _clockDateLabel.TextAlign = ContentAlignment.MiddleRight;
@@ -274,6 +408,22 @@ namespace LianDian.UI
             });
             Controls.Add(brand);
             Controls.Add(accent);
+            _plcLamp.Visible = _dbLamp.Visible = plcLabel.Visible = dbLabel.Visible = divider.Visible = false;
+            FlatTheme.ApplyLabel(_plcText, FlatTheme.Ok, FlatTheme.Bg2);
+            FlatTheme.ApplyLabel(_dbText, FlatTheme.Ok, FlatTheme.Bg2);
+            _plcText.Font = _dbText.Font = FlatTheme.UiBold;
+            brand.Controls.Add(_plcText);
+            brand.Controls.Add(_dbText);
+            FlatTheme.ApplyLabel(_plcCaption, FlatTheme.Text, FlatTheme.Bg2);
+            FlatTheme.ApplyLabel(_dbCaption, FlatTheme.Text, FlatTheme.Bg2);
+            _plcCaption.Text = "PLC";
+            _dbCaption.Text = "数据库";
+            _plcCaption.Font = _dbCaption.Font = FlatTheme.UiBold;
+            foreach (var label in new[] { _plcCaption, _dbCaption, _plcText, _dbText })
+                label.TextAlign = ContentAlignment.MiddleLeft;
+            StylePanel(_statusDivider, FlatTheme.BorderSoft);
+            StylePanel(_clockDivider, FlatTheme.BorderSoft);
+            brand.Controls.AddRange(new Control[] { _plcCaption, _dbCaption, _statusDivider, _clockDivider });
         }
 
         // ---------- 左列 ----------
@@ -293,6 +443,9 @@ namespace LianDian.UI
             AddMeta(meta, _employeeValue, "员工工号", 1);
             AddMeta(meta, _dateValue, "日期编码", 2);
             batchPanel.Controls.Add(_batchNoLabel);
+            var batchIcon = new UISymbolLabel { StyleCustomMode = true, Style = UIStyle.Custom, Symbol = 61451, SymbolSize = 24, Bounds = new Rectangle(20, 66, 32, 32),
+                SymbolColor = FlatTheme.Text2, BackColor = FlatTheme.Panel, Text = "" };
+            batchPanel.Controls.Add(batchIcon);
             batchPanel.Controls.Add(meta);
             Controls.Add(batchPanel);
 
@@ -307,6 +460,10 @@ namespace LianDian.UI
             _productImage.TabStop = false;
             _productImage.Cursor = Cursors.Default;
             imagePanel.Controls.Add(_productImage);
+            FlatTheme.ApplyLabel(_imageCaption, FlatTheme.Text, FlatTheme.Panel);
+            _imageCaption.Font = FlatTheme.UiBold;
+            _imageCaption.TextAlign = ContentAlignment.MiddleCenter;
+            imagePanel.Controls.Add(_imageCaption);
             Controls.Add(imagePanel);
             _logPanel = CreatePanel(new Rectangle(24, 800, 440, 240), "重要日志", null, FlatTheme.Cyan, null);
             _eventLog.StyleCustomMode = true;
@@ -315,19 +472,36 @@ namespace LianDian.UI
             _eventLog.AllowUserToAddRows = false;
             _eventLog.AllowUserToDeleteRows = false;
             _eventLog.RowHeadersVisible = false;
-            _eventLog.ColumnHeadersVisible = false;
+            _eventLog.ColumnHeadersVisible = true;
+            _eventLog.EnableHeadersVisualStyles = false;
+            _eventLog.ColumnHeadersDefaultCellStyle.BackColor = FlatTheme.Panel;
+            _eventLog.ColumnHeadersDefaultCellStyle.ForeColor = FlatTheme.Text2;
+            _eventLog.ColumnHeadersDefaultCellStyle.SelectionBackColor = FlatTheme.Panel;
+            _eventLog.ColumnHeadersHeight = 28;
             _eventLog.BackgroundColor = FlatTheme.Panel;
             _eventLog.BorderStyle = BorderStyle.None;
             _eventLog.DefaultCellStyle = new DataGridViewCellStyle { BackColor=FlatTheme.Panel, ForeColor=FlatTheme.Text,
-                SelectionBackColor=FlatTheme.CyanDark, SelectionForeColor=Color.White, Font=FlatTheme.UiSmall,
+                SelectionBackColor=FlatTheme.CyanDark, SelectionForeColor=Color.White, Font=FlatTheme.TableSmall,
                 WrapMode=DataGridViewTriState.True };
             _eventLog.RowsDefaultCellStyle = _eventLog.DefaultCellStyle;
             _eventLog.AlternatingRowsDefaultCellStyle = _eventLog.DefaultCellStyle;
             _eventLog.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
-            _eventLog.Columns.Add("message", "重要信息");
-            _eventLog.Columns[0].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            _eventLog.Columns.Add("time", "时间");
+            _eventLog.Columns[0].Width = 74;
+            _eventLog.Columns.Add("message", "日志内容");
+            _eventLog.Columns[1].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+            _eventLog.Columns[1].SortMode = DataGridViewColumnSortMode.NotSortable;
             _eventLog.Columns[0].SortMode = DataGridViewColumnSortMode.NotSortable;
             _logPanel.Controls.Add(_eventLog);
+            _pauseLogButton = CreateButton("暂停滚动", new Rectangle(300, 8, 110, 30), false);
+            _pauseLogButton.Click += (s, e) =>
+            {
+                _logPaused = !_logPaused;
+                _pauseLogButton.Text = _logPaused ? "继续滚动" : "暂停滚动";
+                ((UISymbolButton)_pauseLogButton).Symbol = _logPaused ? 61515 : 61516;
+                if (!_logPaused) while (_pausedLogs.Count > 0) InsertLogRow(_pausedLogs.Dequeue());
+            };
+            _logPanel.Controls.Add(_pauseLogButton);
             Controls.Add(_logPanel);
             AddImportantLog("系统界面已启动。");
         }
@@ -338,7 +512,7 @@ namespace LianDian.UI
             int x = index * w;
             var k = CreateLabel(key, new Rectangle(x, 2, w, 18), FlatTheme.Text3, FlatTheme.UiSmall,
                 ContentAlignment.MiddleCenter, FlatTheme.Panel);
-            valueLabel.Font = new Font("Consolas", 11F);
+            valueLabel.Font = new Font("SimSun", 11F);
             FlatTheme.ApplyLabel(valueLabel, FlatTheme.Text, FlatTheme.Panel);
             valueLabel.ForeColor = FlatTheme.Text;
             valueLabel.BackColor = FlatTheme.Panel;
@@ -346,6 +520,8 @@ namespace LianDian.UI
             valueLabel.Bounds = new Rectangle(x, 24, w, 24);
             panel.Controls.Add(k);
             panel.Controls.Add(valueLabel);
+            panel.Controls.Add(new UISymbolLabel { StyleCustomMode = true, Style = UIStyle.Custom, Name = "metaIcon" + index, Symbol = index == 0 ? 61874 : index == 1 ? 61447 : 61555,
+                SymbolSize = 20, SymbolColor = FlatTheme.Text2, BackColor = FlatTheme.Panel, Text = "" });
         }
 
         // ---------- 右列 ----------
@@ -377,7 +553,7 @@ namespace LianDian.UI
             _productCombo.RectDisableColor = Color.FromArgb(50, 64, 72);
             _productCombo.ForeColor = FlatTheme.Text;
             _productCombo.ForeDisableColor = FlatTheme.Text2;
-            _productCombo.Font = FlatTheme.Mono;
+            _productCombo.Font = FlatTheme.Ui;
             _productCombo.Radius = FlatTheme.Radius;
             // 下拉箭头始终列出全部产品；不能把当前显示的“全部产品”或已选产品作为过滤词。
             _productCombo.ShowFilter = false;
@@ -406,7 +582,7 @@ namespace LianDian.UI
             });
             Controls.Add(queryPanel);
 
-            _countLabel = CreateLabel("共 0 条", new Rectangle(0, 0, 200, 14), FlatTheme.Text3, FlatTheme.MonoSmall,
+            _countLabel = CreateLabel("共 0 条", new Rectangle(0, 0, 200, 14), FlatTheme.Text3, FlatTheme.UiSmall,
                 ContentAlignment.MiddleRight, FlatTheme.Panel);
             var tablePanel = CreatePanel(new Rectangle(480, 234, 1416, 792), "测试记录", null, FlatTheme.Cyan, null);
             _tablePanel = tablePanel;
@@ -446,7 +622,7 @@ namespace LianDian.UI
             picker.RectDisableColor = Color.FromArgb(50, 64, 72);
             picker.ForeColor = FlatTheme.Text;
             picker.ForeDisableColor = FlatTheme.Text2;
-            picker.Font = FlatTheme.Mono;
+            picker.Font = FlatTheme.Ui;
             picker.Radius = FlatTheme.Radius;
             picker.Height = 30;
             picker.ShowToday = true;
@@ -494,7 +670,7 @@ namespace LianDian.UI
             _grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(16, 0, 12, 0);
             _grid.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.False;
-            _grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+            _grid.CellBorderStyle = DataGridViewCellBorderStyle.Single;
             _grid.GridColor = FlatTheme.BorderSoft;
             // SunnyUI 滚动条改为暗色细条，融入深色主题
             _grid.ScrollBarStyleInherited = false;
@@ -515,8 +691,8 @@ namespace LianDian.UI
             _grid.Columns["批次号"].Width = 85;
             _grid.Columns["产品名称"].Width = 110;
             _grid.Columns["员工工号"].Width = 100;
-            _grid.Columns["电压"].Width = 100;
-            _grid.Columns["电阻"].Width = 115;
+            _grid.Columns["电压"].Width = 140;
+            _grid.Columns["电阻"].Width = 140;
             _grid.Columns["电流"].Width = 155;
             _grid.Columns["耐压结果"].Width = 95;
             _grid.Columns["气压"].Width = 100;
@@ -531,13 +707,13 @@ namespace LianDian.UI
 
         private void OnCellPainting(object sender, DataGridViewCellPaintingEventArgs e)
         {
-            if (e.RowIndex < 0) return;
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
             if (_grid.Columns[e.ColumnIndex].Name != "耐压结果" && _grid.Columns[e.ColumnIndex].Name != "气压结果") return;
             string s = e.Value as string;
             if (string.IsNullOrEmpty(s) || (s != "OK" && s != "NG")) return;
 
             e.PaintBackground(e.CellBounds, true);
-            Color color = s == "OK" ? FlatTheme.Ok : FlatTheme.Ng;
+            Color color = s == "OK" ? Color.FromArgb(26, 128, 65) : Color.FromArgb(200, 40, 45);
             var rect = e.CellBounds;
             var badge = new Rectangle(rect.X + (rect.Width - 46) / 2, rect.Y + (rect.Height - 22) / 2, 46, 22);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -550,6 +726,7 @@ namespace LianDian.UI
             }
             TextRenderer.DrawText(e.Graphics, s, s == "NG" ? _ngBadgeFont : FlatTheme.MonoSmall, badge, color,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            e.Paint(e.ClipBounds, DataGridViewPaintParts.Border);
             e.Handled = true;
         }
 
@@ -626,39 +803,76 @@ namespace LianDian.UI
             if (_recentLogMessages.TryGetValue(message, out previous) && (now - previous).TotalSeconds < 30) return;
             if (_recentLogMessages.Count >= 500) _recentLogMessages.Clear();
             _recentLogMessages[message] = now;
-            _eventLog.Rows.Insert(0, now.ToString("MM-dd HH:mm:ss") + "  " + message);
+            string line = now.ToString("MM-dd HH:mm:ss") + "  " + message;
+            if (_logPaused)
+            {
+                _pausedLogs.Enqueue(line);
+                while (_pausedLogs.Count > 200) _pausedLogs.Dequeue();
+                return;
+            }
+            InsertLogRow(line);
+        }
+
+        private void InsertLogRow(string line)
+        {
+            _eventLog.Rows.Insert(0, line.Substring(6, 8), line.Substring(16));
+            _eventLog.Rows[0].Cells[0].ToolTipText = line.Substring(0, 14);
+            _eventLog.Rows[0].DefaultCellStyle.ForeColor =
+                line.Contains("失败") || line.Contains("异常") || line.Contains("断开") ? FlatTheme.Ng :
+                line.Contains("不匹配") || line.Contains("不一致") || line.Contains("暂停") ? FlatTheme.Warn :
+                line.Contains("成功") || line.Contains("正常") || line.Contains("已连接") ? FlatTheme.Ok : FlatTheme.Text;
+            _eventLog.Rows[0].Cells[1].Style.ForeColor = _eventLog.Rows[0].DefaultCellStyle.ForeColor;
+            _eventLog.Rows[0].Cells[1].Style.SelectionForeColor = _eventLog.Rows[0].DefaultCellStyle.ForeColor;
             while (_eventLog.Rows.Count > 200) _eventLog.Rows.RemoveAt(_eventLog.Rows.Count - 1);
+            _eventLog.FirstDisplayedScrollingRowIndex = 0;
         }
 
         private void ApplyResponsiveLayout()
         {
             if (_tablePanel == null || _statusLabel == null) return;
             int w = ClientSize.Width, h = ClientSize.Height;
-            int left = Math.Max(300, Math.Min(440, w / 4 - 40));
+            int left = Math.Max(300, Math.Min(360, w / 5));
             int rightX = 24 + left + 16, rightWidth = Math.Max(800, w - rightX - 24);
             _brandPanel.Bounds = new Rectangle(24, 16, w - 48, 72);
             foreach (Control c in Controls)
                 if (c is UIPanel && c.Height == 2) c.Bounds = new Rectangle(24, 86, w - 48, 2);
-            _batchPanel.Bounds = new Rectangle(24, 104, left, 210);
-            int logHeight = Math.Max(150, Math.Min(240, h / 4));
+            int batchHeight = h >= 900 ? 260 : 210;
+            _batchPanel.Bounds = new Rectangle(24, 104, left, batchHeight);
+            int logHeight = Math.Max(150, Math.Min(240, h / 5));
             _logPanel.Bounds = new Rectangle(24, h - 42 - logHeight, left, logHeight);
             _eventLog.Bounds = new Rectangle(10, 50, left - 20, logHeight - 60);
-            _imagePanel.Bounds = new Rectangle(24, 330, left, _logPanel.Top - 346);
-            _productImage.Bounds = new Rectangle(18, 54, left - 36, _imagePanel.Height - 72);
-            _batchNoLabel.Bounds = new Rectangle(20, 50, left - 40, 84);
+            _pauseLogButton.Bounds = new Rectangle(left - 120, 8, 110, 30);
+            foreach (UILabel title in _logPanel.Controls.OfType<UILabel>())
+                if (title.Text == "重要日志") title.Width = Math.Max(80, _pauseLogButton.Left - title.Left - 12);
+            _pauseLogButton.BringToFront();
+            _imagePanel.Bounds = new Rectangle(24, _batchPanel.Bottom + 16, left, _logPanel.Top - _batchPanel.Bottom - 32);
+            _productImage.Bounds = new Rectangle(14, 50, left - 28, Math.Max(25, _imagePanel.Height - 88));
+            _imageCaption.Bounds = new Rectangle(14, _imagePanel.Height - 34, left - 28, 28);
+            _imageCaption.Text = _currentProductName;
+            _batchNoLabel.Bounds = new Rectangle(20, 48, left - 40, 64);
             var meta = _batchPanel.Controls.OfType<MetaRowPanel>().First();
-            meta.Bounds = new Rectangle(20, 146, left - 40, 52);
+            meta.Bounds = new Rectangle(20, 116, left - 40, batchHeight - 124);
             int col = meta.Width / 3;
             foreach (Control c in meta.Controls)
             {
+                if (c is UISymbolLabel)
+                {
+                    int iconIndex = int.Parse(c.Name.Substring("metaIcon".Length));
+                    c.Bounds = new Rectangle(0, iconIndex * (meta.Height / 3), 26, meta.Height / 3);
+                    continue;
+                }
                 int index = c == _productValue || c.Text == "产品名称" ? 0 : c == _employeeValue || c.Text == "员工工号" ? 1 : 2;
-                c.Bounds = new Rectangle(index * col, c.Top, col, c.Height);
+                bool value = c == _productValue || c == _employeeValue || c == _dateValue;
+                int rowHeight = meta.Height / 3;
+                c.Bounds = new Rectangle(value ? 118 : 30, index * rowHeight, value ? meta.Width - 118 : 88, rowHeight);
+                if (c is UILabel label) label.TextAlign = ContentAlignment.MiddleLeft;
             }
-            _queryPanel.Bounds = new Rectangle(rightX, 104, rightWidth, 128);
-            _tablePanel.Bounds = new Rectangle(rightX, 248, rightWidth, Math.Max(220, h - 294));
+            _queryPanel.Bounds = new Rectangle(rightX, 104, rightWidth, 176);
+            _tablePanel.Bounds = new Rectangle(rightX, 296, rightWidth, Math.Max(220, h - 342));
             _grid.Bounds = new Rectangle(0, 46, rightWidth, _tablePanel.Height - 46);
             _countLabel.Bounds = new Rectangle(rightWidth - 235, 14, 215, 22);
-            _unboundLabel.Bounds = new Rectangle(110, 12, Math.Max(250, rightWidth - 540), 24);
+            _unboundLabel.Bounds = new Rectangle(20, 126, rightWidth - 40, 36);
+            _unboundIcon.Bounds = new Rectangle(26, 132, 26, 24);
             _previousPage.Bounds = new Rectangle(rightWidth - 420, 8, 82, 30);
             _nextPage.Bounds = new Rectangle(rightWidth - 330, 8, 82, 30);
             int dateW = Math.Max(140, Math.Min(176, rightWidth / 6));
@@ -673,6 +887,13 @@ namespace LianDian.UI
                 if (c is UIButton) c.Bounds = new Rectangle(rightWidth - (c.Text == "查 询" ? 238 : 128), 76, 100, 36);
             }
             _clockLabel.Bounds = new Rectangle(_brandPanel.Width - 450, 8, 230, 26);
+            int statusX = _brandPanel.Width - 760;
+            _plcCaption.Bounds = new Rectangle(statusX, 22, 45, 30);
+            _plcText.Bounds = new Rectangle(statusX + 48, 22, 82, 30);
+            _statusDivider.Bounds = new Rectangle(statusX + 142, 22, 1, 30);
+            _dbCaption.Bounds = new Rectangle(statusX + 160, 22, 72, 30);
+            _dbText.Bounds = new Rectangle(statusX + 235, 22, 65, 30);
+            _clockDivider.Bounds = new Rectangle(statusX + 315, 22, 1, 30);
             _clockDateLabel.Bounds = new Rectangle(_brandPanel.Width - 450, 40, 230, 20);
             foreach (Control c in _brandPanel.Controls.OfType<UIButton>())
                 c.Left = _brandPanel.Width - (c.Text == "退出" ? 80 : 190);
@@ -684,7 +905,7 @@ namespace LianDian.UI
                     { c.Left = panel.Width - 190; c.Visible = panel.Width >= 400; }
                 }
             _statusLabel.Bounds = new Rectangle(24, h - 30, 260, 24);
-            _warnLabel.Bounds = new Rectangle(300, h - 30, Math.Max(500, w - 324), 24);
+            _warnLabel.Bounds = new Rectangle(rightX, h - 30, rightWidth, 24);
         }
 
         private void RefreshClock()
@@ -695,6 +916,11 @@ namespace LianDian.UI
 
         private void RefreshLamps()
         {
+            _plcText.Text = _manager.Plc.IsConnected ? "已连接" : "未连接";
+            _plcText.ForeColor = _manager.Plc.IsConnected ? FlatTheme.Ok : FlatTheme.Warn;
+            _dbText.Text = _manager.DbHealth.IsHealthy ? "正常" : "异常";
+            _dbText.ForeColor = _manager.DbHealth.IsHealthy ? FlatTheme.Ok : FlatTheme.Ng;
+            _imageCaption.Text = _currentProductName;
             _plcLamp.On = _manager.Plc.IsConnected;
             _dbLamp.On = _manager.DbHealth.IsHealthy;
             _statusLabel.Text = _manager.Plc.IsConnected && _manager.DbHealth.IsHealthy ? "PLC / 数据库正常" : "连接或存储异常，请检查";
@@ -827,6 +1053,10 @@ namespace LianDian.UI
                 });
                 if (_closing || _queryPending) return;
                 _unboundLabel.Text = "当前未绑定数据的数量：" + unboundCount;
+                _unboundLabel.ForeColor = unboundCount == 0 ? Color.FromArgb(39, 104, 68) : Color.FromArgb(160, 93, 0);
+                _unboundLabel.BackColor = unboundCount == 0 ? Color.FromArgb(237, 248, 242) : Color.FromArgb(255, 246, 225);
+                _unboundIcon.BackColor = _unboundLabel.BackColor;
+                _unboundIcon.SymbolColor = _unboundLabel.ForeColor;
                 bool hasMore = rows.Count > PageSize;
                 _grid.Rows.Clear();
                 foreach (DataGridViewColumn column in _grid.Columns) column.SortMode = DataGridViewColumnSortMode.NotSortable;
@@ -837,9 +1067,9 @@ namespace LianDian.UI
                         r.BatchNo.ToString("00000"),
                         r.ProductName ?? "--",
                         r.EmployeeNo ?? "--",
-                        Format(r.Voltage),
-                        Format(r.Resistance),
-                        Format(r.Current),
+                        FormatScientific(r.Voltage),
+                        FormatScientific(r.Resistance),
+                        FormatScientific(r.Current),
                         r.WithstandResult.HasValue ? (r.WithstandResult == 1 ? "OK" : "NG") : "--",
                         Format(r.Pressure),
                         r.PressureResult.HasValue ? (r.PressureResult == 1 ? "OK" : "NG") : "--",
@@ -868,6 +1098,13 @@ namespace LianDian.UI
             return value.HasValue ? value.Value.ToString("0.00") : "--";
         }
 
+        private static string FormatScientific(decimal? value)
+        {
+            return value.HasValue
+                ? value.Value.ToString("+0.00000E+00;-0.00000E+00;+0.00000E+00", System.Globalization.CultureInfo.InvariantCulture)
+                : "--";
+        }
+
         private void SafeInvoke(Action action)
         {
             if (_closing || IsDisposed || !IsHandleCreated) return;
@@ -881,15 +1118,14 @@ namespace LianDian.UI
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            using (var bg = new SolidBrush(FlatTheme.Bg))
+            using (var bg = new SolidBrush(Workspace))
                 e.Graphics.FillRectangle(bg, 0, 0, Width, Height);
-            using (var pen = new Pen(FlatTheme.BgGrid))
-            {
-                for (int x = 0; x < Width; x += 64)
-                    e.Graphics.DrawLine(pen, x, 0, x, Height);
-                for (int y = 0; y < Height; y += 64)
-                    e.Graphics.DrawLine(pen, 0, y, Width, y);
-            }
+            using (var header = new SolidBrush(FlatTheme.Bg2))
+                e.Graphics.FillRectangle(header, 0, 0, Width, 88);
+            // 深色侧栏连续成面，卡片之间不再被浅色背景割裂。
+            if (_batchPanel != null)
+                using (var sidebar = new SolidBrush(FlatTheme.Bg))
+                    e.Graphics.FillRectangle(sidebar, 0, 88, _batchPanel.Right + 8, Height - 88);
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -935,9 +1171,8 @@ namespace LianDian.UI
             using (var pen = new Pen(FlatTheme.BorderSoft))
             {
                 e.Graphics.DrawLine(pen, 0, 0, Width, 0);
-                int w = Width / 3;
-                e.Graphics.DrawLine(pen, w, 0, w, Height);
-                e.Graphics.DrawLine(pen, w * 2, 0, w * 2, Height);
+                e.Graphics.DrawLine(pen, 0, Height / 3, Width, Height / 3);
+                e.Graphics.DrawLine(pen, 0, Height * 2 / 3, Width, Height * 2 / 3);
             }
         }
     }
