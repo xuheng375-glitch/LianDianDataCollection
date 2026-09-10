@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using LianDian.Core.Config;
 using LianDian.Core.Logging;
 using log4net;
@@ -43,13 +44,13 @@ namespace LianDian.Comm
                 {
                     var tcp = new TcpClient();
                     pending = tcp;
-                    IAsyncResult ar = tcp.BeginConnect(_config.Ip, _config.Port, null, null);
-                    using (var wait = ar.AsyncWaitHandle)
-                    {
-                        if (!wait.WaitOne(Math.Max(500, _config.TimeOutMs)))
-                            throw new TimeoutException("PLC TCP 连接超时");
-                    }
-                    tcp.EndConnect(ar);
+                    Task connecting = tcp.ConnectAsync(_config.Ip, _config.Port);
+                    // 超时后关闭socket，观察迟到的异常；不阻塞等待EndConnect。
+                    _ = connecting.ContinueWith(t => { var observed = t.Exception; },
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                    if (Task.WhenAny(connecting, Task.Delay(Math.Max(500, _config.TimeOutMs))).GetAwaiter().GetResult() != connecting)
+                        throw new TimeoutException("PLC TCP 连接超时");
+                    connecting.GetAwaiter().GetResult();
 
                     tcp.NoDelay = true;
                     tcp.ReceiveTimeout = _config.TimeOutMs;
@@ -95,7 +96,16 @@ namespace LianDian.Comm
 
         public ushort[] ReadRegisters(int dAddress, int count)
         {
-            return Execute(() => _master.ReadHoldingRegisters(_config.SlaveId, RegisterMap.ToModbus(dAddress, _config.ModbusOffset), (ushort)count));
+            ushort address = ValidateRange(dAddress, count, 125);
+            return Execute(() => _master.ReadHoldingRegisters(_config.SlaveId, address, (ushort)count));
+        }
+
+        private ushort ValidateRange(int dAddress, int count, int maximum)
+        {
+            if (count < 1 || count > maximum) throw new ArgumentOutOfRangeException(nameof(count));
+            ushort address = RegisterMap.ToModbus(dAddress, _config.ModbusOffset);
+            if ((long)address + count - 1 > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(dAddress), "末寄存器地址越界。");
+            return address;
         }
 
         public int ReadDInt(int dAddress)
@@ -120,6 +130,8 @@ namespace LianDian.Comm
 
         private void WriteRegisters(int dAddress, ushort[] registers)
         {
+            if (registers == null) throw new ArgumentNullException(nameof(registers));
+            ushort address = ValidateRange(dAddress, registers.Length, 123);
             Exception lastError = null;
             int attempts = Math.Max(1, _config.WriteRetryCount);
             for (int attempt = 1; attempt <= attempts; attempt++)
@@ -130,7 +142,7 @@ namespace LianDian.Comm
                     Execute(() =>
                     {
                         _master.WriteMultipleRegisters(_config.SlaveId,
-                            RegisterMap.ToModbus(dAddress, _config.ModbusOffset), registers);
+                            address, registers);
                         return 0;
                     });
                     if (attempt > 1)
@@ -139,6 +151,8 @@ namespace LianDian.Comm
                 }
                 catch (Exception ex)
                 {
+                    // 有效的从站异常响应及本地参数错误，重连不能解决；交由业务层提示。
+                    if (ex is SlaveException || ex is ArgumentException || ex is ObjectDisposedException) throw;
                     lastError = ex;
                     Log.WarnFormat("PLC D{0} 第 {1}/{2} 次写入失败：{3}", dAddress, attempt, attempts, ex.Message);
                     if (attempt < attempts && _config.WriteRetryDelayMs > 0)
@@ -173,7 +187,8 @@ namespace LianDian.Comm
                 }
                 catch (Exception ex)
                 {
-                    MarkDisconnected(ex);
+                    if (ex is IOException || ex is SocketException || ex is TimeoutException)
+                        MarkDisconnected(ex);
                     throw;
                 }
             }

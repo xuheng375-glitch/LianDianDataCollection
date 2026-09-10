@@ -16,6 +16,7 @@ namespace LianDian.Business.Services
     /// </summary>
     public sealed class PressureService : IDisposable
     {
+        private readonly RepeatAlarm _alarms = new RepeatAlarm();
         private static readonly ILog Log = LogHelper.Get(LogHelper.Business);
         private readonly IPlcClient _plc;
         private readonly IPlcSnapshotReader _snapshot;
@@ -101,12 +102,17 @@ namespace LianDian.Business.Services
         {
             try
             {
-                return ProcessUpload();
+                bool success = ProcessUpload();
+                if (success && _alarms.Reset()) Log.Info("气压上传故障已恢复");
+                return success;
             }
             catch (Exception ex)
             {
-                Log.ErrorFormat("气压上传异常：{0}", ex);
-                ErrorOccurred?.Invoke(this, new UploadErrorEventArgs("气压上传异常：" + ex.Message));
+                if (_alarms.ShouldReport(ex.GetType().Name + ":" + ex.Message))
+                {
+                    Log.Error("气压上传异常", ex);
+                    ErrorOccurred?.Invoke(this, new UploadErrorEventArgs("气压上传异常：" + ex.Message));
+                }
                 return false;
             }
         }
@@ -159,11 +165,14 @@ namespace LianDian.Business.Services
 
             if (!_repo.ExistsByProduct(batchDate, batchNo, productName))
             {
+                if (_alarms.ShouldReport("匹配:" + batchDate + ":" + batchNo + ":" + productName))
+                {
                 Log.WarnFormat("气压数据比对不一致：{0}-{1} 产品={2}，保持标志位=1", batchDate, batchNo, productName);
                 string reason = _repo.Exists(batchDate, batchNo) ? "产品名称不匹配" : "未找到对应日期和批次号的记录";
                 DataMismatch?.Invoke(this, new DataMismatchEventArgs(
                     "气密上传不匹配：" + reason + "；D5900=" + batchDate + "，D4300=" + batchNo.ToString("D5") +
                     "，D5200=" + (productName ?? "<未读取>") + "；保持D4020=1。", payload));
+                }
                 return false;
             }
 
@@ -190,9 +199,7 @@ namespace LianDian.Business.Services
             int affected = _repo.UpdatePressure(payload);
             if (affected <= 0)
             {
-                Log.WarnFormat("气压 UPDATE 未命中记录：{0}-{1}", batchDate, batchNo);
-                ErrorOccurred?.Invoke(this, new UploadErrorEventArgs("气密上传未更新到对应记录：" + batchDate + "-" + batchNo.ToString("D5") + "，保持D4020=1。"));
-                return false;
+                throw new InvalidOperationException("气密上传未更新到对应记录：" + batchDate + "-" + batchNo.ToString("D5") + "，保持D4020=1。");
             }
             _plc.WriteDInt(RegisterMap.D4020_PressureFlag, (int)FlagState.Success);
             store?.ClearPendingAck(RegisterMap.D4020_PressureFlag, batchDate, batchNo);

@@ -23,6 +23,7 @@ namespace LianDian.UI
     public sealed class MainForm : UIForm
     {
         private readonly SystemManager _manager;
+        private readonly List<Font> _ownedFonts = new List<Font>();
         private readonly Icon _applicationIcon = System.Drawing.Icon.ExtractAssociatedIcon(typeof(MainForm).Assembly.Location);
         private readonly Timer _clockTimer;
         private readonly Timer _picTimer;
@@ -67,7 +68,11 @@ namespace LianDian.UI
         private string _currentProductName = string.Empty;
         private string _loadedImagePath;
         private DateTime _loadedImageTime;
-        private bool _closing;
+        private volatile bool _closing;
+        private bool _exitConfirmed;
+        private bool _exitPromptOpen;
+        private Task _productRefreshTask;
+        private DateTime _imageRetryAfter;
         private bool _queryRunning;
         private bool _queryPending;
         private bool _exportRunning;
@@ -98,7 +103,7 @@ namespace LianDian.UI
             ClientSize = new Size(1920, 1080);
             BackColor = FlatTheme.Bg;
             ForeColor = FlatTheme.Text;
-            Font = new Font("SimSun", 9F);
+            Font = OwnFont(new Font("SimSun", 9F));
             Padding = new Padding(1);
             DoubleBuffered = true;
 
@@ -133,11 +138,13 @@ namespace LianDian.UI
             RefreshLamps();
             RefreshCurrentBatch();
             RefreshProductImage();
-            RefreshProductCombo();
+            _productCombo.DataSource = new List<string> { "全部产品" };
+            _productCombo.Text = "全部产品";
             Shown += (s, e) =>
             {
                 Bounds = Screen.FromControl(this).WorkingArea;
                 ApplyResponsiveLayout();
+                RefreshProductCombo();
                 DoQuery();
             };
         }
@@ -255,7 +262,7 @@ namespace LianDian.UI
 
         // ---------- 控件工厂 ----------
 
-        private static UIPanel CreatePanel(Rectangle bounds, string caption, string captionEn, Color mark, string captionRight)
+        private UIPanel CreatePanel(Rectangle bounds, string caption, string captionEn, Color mark, string captionRight)
         {
             var p = new UIPanel { Bounds = bounds };
             StylePanel(p, FlatTheme.Panel);
@@ -266,7 +273,7 @@ namespace LianDian.UI
             markCtl.RectColor = mark;
             p.Controls.Add(markCtl);
             p.Controls.Add(CreateLabel(caption, new Rectangle(34, 11, 240, 22), FlatTheme.Text,
-                new Font("SimSun", 10F, FontStyle.Bold), ContentAlignment.MiddleLeft, FlatTheme.Panel));
+                OwnFont(new Font("SimSun", 10F, FontStyle.Bold)), ContentAlignment.MiddleLeft, FlatTheme.Panel));
             if (!string.IsNullOrEmpty(captionEn))
                 p.Controls.Add(CreateLabel(captionEn, new Rectangle(p.Width - 190, 16, 170, 14), FlatTheme.Text3,
                     FlatTheme.UiSmall, ContentAlignment.MiddleRight, FlatTheme.Panel));
@@ -308,7 +315,7 @@ namespace LianDian.UI
             };
         }
 
-        private static UIButton CreateButton(string text, Rectangle bounds, bool primary)
+        private UIButton CreateButton(string text, Rectangle bounds, bool primary)
         {
             var btn = new UISymbolButton
             {
@@ -340,7 +347,7 @@ namespace LianDian.UI
             btn.SymbolSize = 18;
             if (primary)
             {
-                btn.Font = new Font(FlatTheme.Ui.FontFamily, 11F, FontStyle.Bold);
+                btn.Font = OwnFont(new Font(FlatTheme.Ui.FontFamily, 11F, FontStyle.Bold));
             }
             return btn;
         }
@@ -358,7 +365,7 @@ namespace LianDian.UI
             accent.RectColor = FlatTheme.Cyan;
 
             var title = CreateLabel("联电数据收集", new Rectangle(22, 8, 260, 34), FlatTheme.Text,
-                new Font("SimSun", 15F, FontStyle.Bold), ContentAlignment.MiddleLeft, FlatTheme.Bg2);
+                OwnFont(new Font("SimSun", 15F, FontStyle.Bold)), ContentAlignment.MiddleLeft, FlatTheme.Bg2);
             var subtitle = CreateLabel("LIANDIAN DATA COLLECTION · SCADA", new Rectangle(24, 42, 360, 16), FlatTheme.Steel,
                 FlatTheme.UiSmall, ContentAlignment.MiddleLeft, FlatTheme.Bg2);
             var divider = new UIPanel { Bounds = new Rectangle(250, 19, 1, 34) };
@@ -397,8 +404,7 @@ namespace LianDian.UI
             var exitBtn = CreateButton("退出", new Rectangle(1812, 20, 60, 32), false);
             exitBtn.Click += (s, e) =>
             {
-                using (var dialog = new ExitConfirmForm())
-                    if (dialog.ShowDialog(this) == DialogResult.OK) Close();
+                Close();
             };
 
             brand.Controls.AddRange(new Control[]
@@ -506,13 +512,13 @@ namespace LianDian.UI
             AddImportantLog("系统界面已启动。");
         }
 
-        private static void AddMeta(MetaRowPanel panel, UILabel valueLabel, string key, int index)
+        private void AddMeta(MetaRowPanel panel, UILabel valueLabel, string key, int index)
         {
             int w = panel.Width / 3;
             int x = index * w;
             var k = CreateLabel(key, new Rectangle(x, 2, w, 18), FlatTheme.Text3, FlatTheme.UiSmall,
                 ContentAlignment.MiddleCenter, FlatTheme.Panel);
-            valueLabel.Font = new Font("SimSun", 11F);
+            valueLabel.Font = OwnFont(new Font("SimSun", 11F));
             FlatTheme.ApplyLabel(valueLabel, FlatTheme.Text, FlatTheme.Panel);
             valueLabel.ForeColor = FlatTheme.Text;
             valueLabel.BackColor = FlatTheme.Panel;
@@ -565,11 +571,7 @@ namespace LianDian.UI
             _productCombo.ItemSelectForeColor = Color.White;
             _productCombo.ItemRectColor = FlatTheme.BorderSoft;
             _productCombo.ItemHeight = 28;
-            new ProductDropdownRefresh(_productCombo, () =>
-            {
-                try { RefreshProductCombo(true); }
-                catch (Exception ex) { SetWarn("产品列表刷新失败：" + ex.Message); }
-            });
+            new ProductDropdownRefresh(_productCombo, () => RefreshProductComboAsync(true));
 
             var btn = CreateButton("查 询", new Rectangle(1000, 68, 100, 38), true);
             btn.Click += (s, e) => { _pageIndex = 0; DoQuery(); };
@@ -651,7 +653,7 @@ namespace LianDian.UI
             _grid.DefaultCellStyle.SelectionBackColor = FlatTheme.CyanDark;
             _grid.DefaultCellStyle.SelectionForeColor = FlatTheme.Text;
             _grid.DefaultCellStyle.ForeColor = FlatTheme.Text;
-            _grid.DefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9.5F);
+            _grid.DefaultCellStyle.Font = OwnFont(new Font("Microsoft YaHei UI", 9.5F));
             // 按用户调整后的截图保留横向留白；垂直居中，避免 36px 行内文字被上下内边距裁切。
             _grid.DefaultCellStyle.Padding = new Padding(16, 0, 12, 0);
             _grid.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
@@ -666,7 +668,7 @@ namespace LianDian.UI
             _grid.ColumnHeadersDefaultCellStyle.ForeColor = FlatTheme.Cyan;
             _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = FlatTheme.Header;
             _grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = FlatTheme.Cyan;
-            _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold);
+            _grid.ColumnHeadersDefaultCellStyle.Font = OwnFont(new Font("Microsoft YaHei UI", 9F, FontStyle.Bold));
             _grid.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleLeft;
             _grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(16, 0, 12, 0);
             _grid.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.False;
@@ -708,26 +710,41 @@ namespace LianDian.UI
         private void OnCellPainting(object sender, DataGridViewCellPaintingEventArgs e)
         {
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
-            if (_grid.Columns[e.ColumnIndex].Name != "耐压结果" && _grid.Columns[e.ColumnIndex].Name != "气压结果") return;
-            string s = e.Value as string;
-            if (string.IsNullOrEmpty(s) || (s != "OK" && s != "NG")) return;
-
-            e.PaintBackground(e.CellBounds, true);
-            Color color = s == "OK" ? Color.FromArgb(26, 128, 65) : Color.FromArgb(200, 40, 45);
-            var rect = e.CellBounds;
-            var badge = new Rectangle(rect.X + (rect.Width - 46) / 2, rect.Y + (rect.Height - 22) / 2, 46, 22);
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var path = RoundedRect(badge, 3))
+            // 所有数据单元格共用同一种边框，避免默认选中态与徽章自绘混用边框颜色。
+            var state = e.Graphics.Save();
+            try
             {
-                using (var fill = new SolidBrush(Color.FromArgb(26, color)))
-                    e.Graphics.FillPath(fill, path);
-                using (var pen = new Pen(Color.FromArgb(90, color)))
-                    e.Graphics.DrawPath(pen, path);
+                string name = _grid.Columns[e.ColumnIndex].Name;
+                string value = e.Value as string;
+                bool badgeCell = (name == "耐压结果" || name == "气压结果") && (value == "OK" || value == "NG");
+                if (!badgeCell)
+                    e.Paint(e.ClipBounds, DataGridViewPaintParts.All & ~DataGridViewPaintParts.Border & ~DataGridViewPaintParts.Focus);
+                else
+                {
+                    e.PaintBackground(e.CellBounds, true);
+                    Color color = value == "OK" ? Color.FromArgb(26, 128, 65) : Color.FromArgb(200, 40, 45);
+                    var rect = e.CellBounds;
+                    var badge = new Rectangle(rect.X + (rect.Width - 46) / 2, rect.Y + (rect.Height - 22) / 2, 46, 22);
+                    e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    using (var path = RoundedRect(badge, 3))
+                    {
+                        using (var fill = new SolidBrush(Color.FromArgb(26, color))) e.Graphics.FillPath(fill, path);
+                        using (var pen = new Pen(Color.FromArgb(90, color))) e.Graphics.DrawPath(pen, path);
+                    }
+                    TextRenderer.DrawText(e.Graphics, value, value == "NG" ? _ngBadgeFont : FlatTheme.MonoSmall, badge, color,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                }
+                e.Graphics.SmoothingMode = SmoothingMode.None;
+                e.Graphics.PixelOffsetMode = PixelOffsetMode.Default;
+                using (var pen = new Pen(Color.FromArgb(170, 188, 200)))
+                {
+                    var rect = e.CellBounds;
+                    e.Graphics.DrawLine(pen, rect.Right - 1, rect.Top, rect.Right - 1, rect.Bottom - 1);
+                    e.Graphics.DrawLine(pen, rect.Left, rect.Bottom - 1, rect.Right - 1, rect.Bottom - 1);
+                }
+                e.Handled = true;
             }
-            TextRenderer.DrawText(e.Graphics, s, s == "NG" ? _ngBadgeFont : FlatTheme.MonoSmall, badge, color,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            e.Paint(e.ClipBounds, DataGridViewPaintParts.Border);
-            e.Handled = true;
+            finally { e.Graphics.Restore(state); }
         }
 
         private static GraphicsPath RoundedRect(Rectangle rect, int radius)
@@ -744,20 +761,45 @@ namespace LianDian.UI
 
         // ---------- 数据与事件 ----------
 
+        private Font OwnFont(Font font) { _ownedFonts.Add(font); return font; }
+
         private void WireEvents()
         {
-            _manager.Plc.ConnectionChanged += (s, e) => SafeInvoke(() => { RefreshLamps(); AddImportantLog(_manager.Plc.Client.IsConnected ? "PLC已连接" : "PLC连接断开"); });
-            _manager.DbHealth.HealthChanged += (s, e) => SafeInvoke(() => { RefreshLamps(); AddImportantLog(_manager.DbHealth.IsHealthy ? "数据库正常" : "数据库异常"); });
+            _manager.Plc.ConnectionChanged += OnPlcChanged;
+            _manager.DbHealth.HealthChanged += OnHealthChanged;
             _manager.Batch.BatchIssued += OnBatchIssued;
             _manager.Withstand.RecordUploaded += OnUpload;
             _manager.Pressure.RecordUploaded += OnUpload;
-            _manager.QrUpload.RecordUploaded += (s, e) => SafeInvoke(() => { AddImportantLog("二维码匹配入库成功"); DoQuery(); });
-            _manager.QrUpload.ErrorOccurred += (s, e) => SafeInvoke(() => SetWarn(e.Message));
-            _manager.Withstand.DataMismatch += (s, e) => SafeInvoke(() => SetWarn(e.Message));
-            _manager.Pressure.DataMismatch += (s, e) => SafeInvoke(() => SetWarn(e.Message));
-            _manager.Batch.ErrorOccurred += (s, e) => SafeInvoke(() => SetWarn(e.Message));
-            _manager.Withstand.ErrorOccurred += (s, e) => SafeInvoke(() => SetWarn(e.Message));
-            _manager.Pressure.ErrorOccurred += (s, e) => SafeInvoke(() => SetWarn(e.Message));
+            _manager.QrUpload.RecordUploaded += OnQrUploaded;
+            _manager.QrUpload.ErrorOccurred += OnUploadError;
+            _manager.Withstand.DataMismatch += OnMismatch;
+            _manager.Pressure.DataMismatch += OnMismatch;
+            _manager.Batch.ErrorOccurred += OnBatchError;
+            _manager.Withstand.ErrorOccurred += OnUploadError;
+            _manager.Pressure.ErrorOccurred += OnUploadError;
+        }
+
+        private void OnPlcChanged(object sender, EventArgs e) => SafeInvoke(() => { RefreshLamps(); AddImportantLog(_manager.Plc.Client.IsConnected ? "PLC已连接" : "PLC连接断开"); });
+        private void OnHealthChanged(object sender, EventArgs e) => SafeInvoke(() => { RefreshLamps(); AddImportantLog(_manager.DbHealth.IsHealthy ? "数据库正常" : "数据库异常"); });
+        private void OnQrUploaded(object sender, EventArgs e) => SafeInvoke(() => { AddImportantLog("二维码匹配入库成功"); DoQuery(); });
+        private void OnUploadError(object sender, UploadErrorEventArgs e) => SafeInvoke(() => SetWarn(e.Message));
+        private void OnMismatch(object sender, DataMismatchEventArgs e) => SafeInvoke(() => SetWarn(e.Message));
+        private void OnBatchError(object sender, BatchErrorEventArgs e) => SafeInvoke(() => SetWarn(e.Message));
+
+        private void UnwireEvents()
+        {
+            _manager.Plc.ConnectionChanged -= OnPlcChanged;
+            _manager.DbHealth.HealthChanged -= OnHealthChanged;
+            _manager.QrUpload.RecordUploaded -= OnQrUploaded;
+            _manager.QrUpload.ErrorOccurred -= OnUploadError;
+            _manager.Withstand.DataMismatch -= OnMismatch;
+            _manager.Pressure.DataMismatch -= OnMismatch;
+            _manager.Batch.ErrorOccurred -= OnBatchError;
+            _manager.Withstand.ErrorOccurred -= OnUploadError;
+            _manager.Pressure.ErrorOccurred -= OnUploadError;
+            _manager.Batch.BatchIssued -= OnBatchIssued;
+            _manager.Withstand.RecordUploaded -= OnUpload;
+            _manager.Pressure.RecordUploaded -= OnUpload;
         }
 
         private void OnBatchIssued(object sender, EventArgs e)
@@ -870,11 +912,12 @@ namespace LianDian.UI
             _queryPanel.Bounds = new Rectangle(rightX, 104, rightWidth, 176);
             _tablePanel.Bounds = new Rectangle(rightX, 296, rightWidth, Math.Max(220, h - 342));
             _grid.Bounds = new Rectangle(0, 46, rightWidth, _tablePanel.Height - 46);
-            _countLabel.Bounds = new Rectangle(rightWidth - 235, 14, 215, 22);
+            _countLabel.Bounds = new Rectangle(rightWidth - 180, 8, 160, 30);
             _unboundLabel.Bounds = new Rectangle(20, 126, rightWidth - 40, 36);
             _unboundIcon.Bounds = new Rectangle(26, 132, 26, 24);
-            _previousPage.Bounds = new Rectangle(rightWidth - 420, 8, 82, 30);
-            _nextPage.Bounds = new Rectangle(rightWidth - 330, 8, 82, 30);
+            // 分页组靠右：按钮间隔20px，下一页与页数区域间隔20px。
+            _nextPage.Bounds = new Rectangle(_countLabel.Left - 20 - 82, 8, 82, 30);
+            _previousPage.Bounds = new Rectangle(_nextPage.Left - 20 - 82, 8, 82, 30);
             int dateW = Math.Max(140, Math.Min(176, rightWidth / 6));
             _fromPicker.Bounds = new Rectangle(20, 78, dateW, 32);
             _toPicker.Bounds = new Rectangle(36 + dateW, 78, dateW, 32);
@@ -947,20 +990,37 @@ namespace LianDian.UI
             if (string.IsNullOrEmpty(product)) product = _currentProductName;
             string path = ImageResolver.FindProductImage(_productPicDir, product);
             DateTime modified = path != null && File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
-            if (string.Equals(path, _loadedImagePath, StringComparison.OrdinalIgnoreCase) && modified == _loadedImageTime) return;
+            if (string.Equals(path, _loadedImagePath, StringComparison.OrdinalIgnoreCase) && modified == _loadedImageTime &&
+                (_imageRetryAfter == DateTime.MinValue || DateTime.UtcNow < _imageRetryAfter)) return;
             Image image = ImageResolver.LoadSafely(path);
             _loadedImagePath = path;
-            _loadedImageTime = image == null && path != null ? DateTime.MinValue : modified;
+            _loadedImageTime = modified;
+            _imageRetryAfter = image == null && path != null ? DateTime.UtcNow.AddSeconds(30) : DateTime.MinValue;
+            if (image == null && path != null) SetWarn("产品图片加载失败，30秒后重试：" + Path.GetFileName(path));
             Image old = _productImage.BackgroundImage;
             _productImage.BackgroundImage = image;
             old?.Dispose();
         }
 
-        private void RefreshProductCombo(bool preserveSelection = false)
+        private async void RefreshProductCombo(bool preserveSelection = false)
         {
+            await RefreshProductComboAsync(preserveSelection);
+        }
+
+        private Task RefreshProductComboAsync(bool preserveSelection)
+        {
+            return _productRefreshTask != null && !_productRefreshTask.IsCompleted
+                ? _productRefreshTask : (_productRefreshTask = LoadProductComboAsync(preserveSelection));
+        }
+
+        private async Task LoadProductComboAsync(bool preserveSelection)
+        {
+            try
+            {
+            var products = await Task.Run(() => _manager.BatchRepo.GetDistinctProductNames()
+                .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().ToList());
+            if (_closing || IsDisposed) return;
             string selected = _productCombo.Text;
-            var products = _manager.BatchRepo.GetDistinctProductNames()
-                .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct().ToList();
             _allProducts.Clear();
             foreach (string n in products)
                 _allProducts.Add(n);
@@ -969,6 +1029,8 @@ namespace LianDian.UI
             options.AddRange(_allProducts);
             _productCombo.DataSource = options;
             _productCombo.Text = preserveSelection && !string.IsNullOrEmpty(selected) ? selected : "全部产品";
+            }
+            catch (Exception ex) { if (!_closing && !IsDisposed) SetWarn("产品列表刷新失败：" + ex.Message); }
         }
 
         private async void ExportData()
@@ -1077,6 +1139,9 @@ namespace LianDian.UI
                         r.QrGrade ?? "--");
                     _grid.Rows[rowIndex].Tag = r;
                 }
+                // 新填充行不代表用户主动选中，取消DataGridView自动选中的第一行。
+                _grid.CurrentCell = null;
+                _grid.ClearSelection();
                 SetWarn(string.Empty);
                 _countLabel.Text = "第 " + (_pageIndex + 1) + " 页 · " + Math.Min(rows.Count, PageSize) + " 条";
                 _previousPage.Enabled = _pageIndex > 0;
@@ -1130,10 +1195,23 @@ namespace LianDian.UI
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (e.CloseReason == CloseReason.UserClosing && !_exitConfirmed)
+            {
+                if (_exitPromptOpen) { e.Cancel = true; return; }
+                _exitPromptOpen = true;
+                try
+                {
+                    using (var dialog = new ExitConfirmForm())
+                        _exitConfirmed = dialog.ShowDialog(this) == DialogResult.OK;
+                }
+                finally { _exitPromptOpen = false; }
+                if (!_exitConfirmed) { e.Cancel = true; return; }
+            }
+            base.OnFormClosing(e);
+            if (e.Cancel) { _exitConfirmed = false; return; }
             _closing = true;
             _clockTimer?.Dispose();
             _picTimer?.Dispose();
-            base.OnFormClosing(e);
         }
 
         protected override void Dispose(bool disposing)
@@ -1141,6 +1219,7 @@ namespace LianDian.UI
             if (disposing)
             {
                 _closing = true;
+                UnwireEvents();
                 _clockTimer?.Dispose(); _picTimer?.Dispose();
 
                 _applicationIcon?.Dispose();
@@ -1148,6 +1227,11 @@ namespace LianDian.UI
                 _productImage.BackgroundImage?.Dispose(); _productImage.BackgroundImage = null;
             }
             base.Dispose(disposing);
+            if (disposing)
+            {
+                foreach (Font font in _ownedFonts) font.Dispose();
+                _ownedFonts.Clear();
+            }
         }
     }
 

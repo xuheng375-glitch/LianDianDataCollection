@@ -17,6 +17,8 @@ namespace LianDian.UI.Forms
         private const int SmallHeight = 700;
 
         private readonly List<string> _images = new List<string>();
+        private readonly List<Font> _ownedFonts = new List<Font>();
+        private Font OwnFont(Font font) { _ownedFonts.Add(font); return font; }
         private readonly UIImageButton _picture = new UIImageButton { SizeMode = PictureBoxSizeMode.Zoom, BackColor = FlatTheme.Panel2 };
         private readonly UILabel _pageLabel = new UILabel();
         private UIButton _enlargeBtn;
@@ -42,7 +44,7 @@ namespace LianDian.UI.Forms
             ClientSize = new Size(SmallWidth, SmallHeight);
             BackColor = FlatTheme.Bg;
             ForeColor = FlatTheme.Text;
-            Font = new Font("SimSun", 9F);
+            Font = OwnFont(new Font("SimSun", 9F));
             Padding = new Padding(1);
             LoadImages(instructionDir, productName);
             BuildUi();
@@ -118,7 +120,7 @@ namespace LianDian.UI.Forms
         private void BuildUi()
         {
             Controls.Add(MakeLabel("作业指导书", new Rectangle(24, 14, 200, 28), FlatTheme.Text,
-                new Font("SimSun", 13F, FontStyle.Bold)));
+                OwnFont(new Font("SimSun", 13F, FontStyle.Bold))));
             _pageLabel.TextAlign = ContentAlignment.MiddleCenter;
             _pageLabel.Font = FlatTheme.Ui;
             _pageLabel.ForeColor = FlatTheme.Text2;
@@ -206,7 +208,9 @@ namespace LianDian.UI.Forms
         {
             if (_images.Count == 0)
             {
+                Image old = _picture.BackgroundImage;
                 _picture.BackgroundImage = null;
+                old?.Dispose();
                 _pageLabel.Text = "当前产品无匹配指导书";
                 return;
             }
@@ -230,6 +234,7 @@ namespace LianDian.UI.Forms
         {
             if (disposing) { _picture.BackgroundImage?.Dispose(); _picture.BackgroundImage = null; }
             base.Dispose(disposing);
+            if (disposing) { foreach (Font font in _ownedFonts) font.Dispose(); _ownedFonts.Clear(); }
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)

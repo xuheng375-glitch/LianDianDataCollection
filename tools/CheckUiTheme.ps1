@@ -42,6 +42,48 @@ try {
     [Windows.Forms.Application]::DoEvents()
     if ($uiInstructions.Bounds -ne [Windows.Forms.Screen]::FromControl($uiInstructions).Bounds) { throw 'Instruction not fullscreen' }
     $uiFlags = [Reflection.BindingFlags]'NonPublic,Instance'
+    $uiDpiGraphics = $uiMain.CreateGraphics()
+    try { Write-Output ('Actual UI DPI: '+$uiDpiGraphics.DpiX+' x '+$uiDpiGraphics.DpiY+'; other Windows scale settings are not exercised by this run.') }
+    finally { $uiDpiGraphics.Dispose() }
+    # UserClosing must confirm; cancel must leave the application and timers alive.
+    $uiCancelTimer = New-Object Windows.Forms.Timer
+    $uiCancelTimer.Interval = 100
+    $uiCancelTimer.Add_Tick({
+        foreach ($dialog in @([Windows.Forms.Application]::OpenForms)) {
+            if ($dialog -is [LianDian.UI.Forms.ExitConfirmForm] -and $dialog.Modal) {
+                $dialog.DialogResult = [Windows.Forms.DialogResult]::Cancel
+            }
+        }
+    })
+    try {
+        $uiCancelTimer.Start()
+        $uiMain.Close()
+        if ($uiMain.IsDisposed -or $uiMain.GetType().GetField('_closing',$uiFlags).GetValue($uiMain)) { throw 'Cancelled exit stopped application' }
+    } finally { $uiCancelTimer.Dispose() }
+    # Await the asynchronous catalog query by pumping UI continuations, without starting PLC.
+    $uiRefresh = $uiMain.GetType().GetMethod('RefreshProductComboAsync',$uiFlags).Invoke($uiMain,@($true))
+    $uiDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (!$uiRefresh.IsCompleted -and [DateTime]::UtcNow -lt $uiDeadline) {
+        [Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 10
+    }
+    if (!$uiRefresh.IsCompleted) { throw 'Product refresh timeout' }
+    $uiCatalogRecord = New-Object LianDian.Core.Models.BatchRecord
+    $uiCatalogRecord.BatchDate = '26253'
+    $uiCatalogRecord.BatchNo = 99999
+    $uiCatalogRecord.ProductName = 'ASYNC-CATALOG-CHECK'
+    $uiCatalogRecord.IssueTime = [DateTime]::Now
+    [void]$uiManager.BatchRepo.Insert($uiCatalogRecord)
+    $uiManager.BatchRepo.ClearPendingAck(4002,'26253',99999)
+    $uiRefresh = $uiMain.GetType().GetMethod('RefreshProductComboAsync',$uiFlags).Invoke($uiMain,@($true))
+    $uiDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (!$uiRefresh.IsCompleted -and [DateTime]::UtcNow -lt $uiDeadline) {
+        [Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 10
+    }
+    $uiCombo = $uiMain.GetType().GetField('_productCombo',$uiFlags).GetValue($uiMain)
+    if (!$uiRefresh.IsCompleted -or !($uiCombo.DataSource -contains 'ASYNC-CATALOG-CHECK')) { throw 'New database product absent from dropdown' }
+    Write-Output 'Exit cancellation and asynchronous product refresh passed.'
     $uiMain.GetType().GetField('_picTimer',$uiFlags).GetValue($uiMain).Stop()
     for ($uiWait=0;$uiWait -lt 200 -and $uiMain.GetType().GetField('_queryRunning',$uiFlags).GetValue($uiMain);$uiWait++) {
         [Windows.Forms.Application]::DoEvents()
@@ -79,6 +121,26 @@ try {
         $uiProduct.BackgroundImage = [LianDian.UI.ImageResolver]::LoadSafely($uiSavedProduct)
     }
     [void]$uiGrid.Rows.Add([object[]]@('26250','00005','DH280GM','600249','41244.00','241124.00','2412412.00','OK','12223.00','OK','2026-09-07 21:45:08','A'))
+    # Sample the same cell boundary with and without selection.
+    foreach ($uiSelected in @($false,$true)) {
+        $uiGrid.CurrentCell = $null
+        $uiGrid.ClearSelection()
+        if ($uiSelected) { $uiGrid.Rows[0].Selected = $true }
+        $uiBorderBitmap = New-Object Drawing.Bitmap($uiGrid.Width,$uiGrid.Height)
+        try {
+            $uiGrid.DrawToBitmap($uiBorderBitmap,[Drawing.Rectangle]::new(0,0,$uiGrid.Width,$uiGrid.Height))
+            foreach ($uiColumnName in @('时间','电压','耐压结果')) {
+                $uiCellRect = $uiGrid.GetCellDisplayRectangle($uiGrid.Columns[$uiColumnName].Index,0,$false)
+                $uiPixel = $uiBorderBitmap.GetPixel($uiCellRect.Right-1,$uiCellRect.Top+10)
+                if ($uiPixel.ToArgb() -ne [Drawing.Color]::FromArgb(170,188,200).ToArgb()) {
+                    throw ('Inconsistent border: '+$uiColumnName+' selected='+$uiSelected+' color='+$uiPixel)
+                }
+            }
+        } finally { $uiBorderBitmap.Dispose() }
+    }
+    $uiGrid.CurrentCell = $null
+    $uiGrid.ClearSelection()
+    Write-Output 'Selected and unselected grid border pixel checks passed.'
     $uiMain.GetType().GetField('_countLabel',$uiFlags).GetValue($uiMain).Text = '1 record (preview)'
     foreach ($uiField in @('_productValue','_employeeValue','_dateValue','_batchNoLabel')) {
         $uiLabel = $uiMain.GetType().GetField($uiField,$uiFlags).GetValue($uiMain)

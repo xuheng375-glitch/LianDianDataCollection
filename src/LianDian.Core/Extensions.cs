@@ -18,7 +18,16 @@ namespace LianDian.Core
             if (decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint |
                 NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite | NumberStyles.AllowExponent,
                 CultureInfo.InvariantCulture, out result))
+            {
+                // Decimal 会将小于其精度的非零数舍入为零，不能把它当作有效测量值。
+                if (result == 0)
+                    foreach (char c in value)
+                    {
+                        if (c == 'e' || c == 'E') break;
+                        if (c >= '1' && c <= '9') return null;
+                    }
                 return result;
+            }
             return null;
         }
 

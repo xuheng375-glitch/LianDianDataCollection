@@ -18,6 +18,9 @@ namespace LianDian.Business.Tests
         [InlineData("+5.00755E+03", "5007.55")]
         [InlineData("-1.23e-03", "-0.00123")]
         [InlineData("1", "1")]
+        [InlineData("0E-50", "0")]
+        [InlineData("-0.000E-100", "0")]
+        [InlineData("1E-28", "0.0000000000000000000000000001")]
         [InlineData("  +5.00755E+03  ", "5007.55")]
         public void ParsesInvariantDecimal(string input, string expected)
         {
@@ -27,11 +30,26 @@ namespace LianDian.Business.Tests
         [Theory]
         [InlineData("5.00E+")]
         [InlineData("1E+100")]
+        [InlineData("1E-100")]
+        [InlineData("1E-29")]
+        [InlineData("-1E-50")]
         [InlineData("NaN")]
         [InlineData("Infinity")]
         [InlineData("5,007.55")]
         [InlineData("")]
         public void InvalidOrOverflowIsNotZero(string input) => Assert.Null(input.SafeToDecimal());
+
+        [Fact]
+        public void UnderflowDoesNotStoreOrAcknowledge()
+        {
+            var repo = new InMemoryBatchRepository();
+            repo.Insert(new BatchRecord { BatchDate="26188", BatchNo=1, ProductName="P" });
+            var plc = new FakePlcClient();
+            using (var service = new WithstandService(plc, new FakeSnapshot(), repo, new BusinessConfig()))
+                Assert.Throws<InvalidOperationException>(() => service.ProcessUploadForTest("26188", 1, "P", "1E-50", "1", "1", 1));
+            Assert.Null(repo.Records.Single().Voltage);
+            Assert.DoesNotContain(plc.Writes, w => w.Address == 4010);
+        }
 
         [Fact]
         public void TwelveByteValueDecodesAndUploadsBeforeAck()

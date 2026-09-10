@@ -17,6 +17,7 @@ namespace LianDian.Business.Services
     /// </summary>
     public sealed class WithstandService : IDisposable
     {
+        private readonly RepeatAlarm _alarms = new RepeatAlarm();
         private static readonly ILog Log = LogHelper.Get(LogHelper.Business);
         private readonly IPlcClient _plc;
         private readonly IPlcSnapshotReader _snapshot;
@@ -102,12 +103,17 @@ namespace LianDian.Business.Services
         {
             try
             {
-                return ProcessUpload();
+                bool success = ProcessUpload();
+                if (success && _alarms.Reset()) Log.Info("耐压上传故障已恢复");
+                return success;
             }
             catch (Exception ex)
             {
-                Log.ErrorFormat("耐压上传异常：{0}", ex);
-                ErrorOccurred?.Invoke(this, new UploadErrorEventArgs("耐压上传异常：" + ex.Message));
+                if (_alarms.ShouldReport(ex.GetType().Name + ":" + ex.Message))
+                {
+                    Log.Error("耐压上传异常", ex);
+                    ErrorOccurred?.Invoke(this, new UploadErrorEventArgs("耐压上传异常：" + ex.Message));
+                }
                 return false;
             }
         }
@@ -132,9 +138,12 @@ namespace LianDian.Business.Services
             string batchText;
             int batchNo;
             int result;
-            if (!Snapshot.TryGetString(RegisterMap.D5800_WithstandDate, out date) || !PlcText.IsDate(date)) return false;
-            if (!Snapshot.TryGetString(RegisterMap.D4200_WithstandBatchNo, out batchText) || !PlcText.TryBatch(batchText, out batchNo)) return false;
-            if (!Snapshot.TryGetDInt(RegisterMap.D4014_WithstandResult, out result)) return false;
+            if (!Snapshot.TryGetString(RegisterMap.D5800_WithstandDate, out date) || !PlcText.IsDate(date))
+                throw new InvalidOperationException("耐压上传：D5800日期未有效读取或不是有效yyDDD，保持D4010=1。");
+            if (!Snapshot.TryGetString(RegisterMap.D4200_WithstandBatchNo, out batchText) || !PlcText.TryBatch(batchText, out batchNo))
+                throw new InvalidOperationException("耐压上传：D4200批次号未有效读取或不是五位数字，保持D4010=1。");
+            if (!Snapshot.TryGetDInt(RegisterMap.D4014_WithstandResult, out result))
+                throw new InvalidOperationException("耐压上传：D4014结果未有效读取，保持D4010=1。");
 
             string productName = null;
             string product;
@@ -167,8 +176,13 @@ namespace LianDian.Business.Services
             // 三方比对：产品 + 日期 + 批次与 batch_record 一致
             if (!_repo.ExistsByProduct(batchDate, batchNo, productName))
             {
-                Log.WarnFormat("耐压数据比对不一致：{0}-{1} 产品={2}，保持标志位=1", batchDate, batchNo, productName);
-                DataMismatch?.Invoke(this, new DataMismatchEventArgs("耐压数据与批次记录不一致", payload));
+                if (_alarms.ShouldReport("匹配:" + batchDate + ":" + batchNo + ":" + productName))
+                {
+                    string message = "耐压数据与批次记录不一致：D5800=" + batchDate + "，D4200=" + batchNo.ToString("D5") +
+                        "，D5100=" + (string.IsNullOrWhiteSpace(productName) ? "<产品名称为空或未读取>" : productName) + "；保持D4010=1。";
+                    Log.Warn(message);
+                    DataMismatch?.Invoke(this, new DataMismatchEventArgs(message, payload));
+                }
                 return false;
             }
 
@@ -193,12 +207,14 @@ namespace LianDian.Business.Services
             if (!voltage.HasValue) throw new InvalidOperationException("D5300电压未有效读取或数值格式无效/超出范围，保持上传标志位1。");
             if (!resistance.HasValue) throw new InvalidOperationException("D5400电阻未有效读取或数值格式无效/超出范围，保持上传标志位1。");
             if (!current.HasValue) throw new InvalidOperationException("D5500电流未有效读取或数值格式无效/超出范围，保持上传标志位1。");
-            if (string.IsNullOrWhiteSpace(productName) || (result != 1 && result != 2)) return false;
+            if (string.IsNullOrWhiteSpace(productName))
+                throw new InvalidOperationException("耐压上传：D5100产品名称为空，保持D4010=1。");
+            if (result != 1 && result != 2)
+                throw new InvalidOperationException("耐压上传：D4014结果必须为1或2，保持D4010=1。");
             int affected = _repo.UpdateWithstand(payload);
             if (affected <= 0)
             {
-                Log.WarnFormat("耐压 UPDATE 未命中记录：{0}-{1}", batchDate, batchNo);
-                return false;
+                throw new InvalidOperationException("耐压上传未更新到对应记录：" + batchDate + "-" + batchNo.ToString("D5") + "，保持D4010=1。");
             }
             _plc.WriteDInt(RegisterMap.D4010_WithstandFlag, (int)FlagState.Success);
             store?.ClearPendingAck(RegisterMap.D4010_WithstandFlag, batchDate, batchNo);

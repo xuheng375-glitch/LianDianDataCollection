@@ -17,6 +17,7 @@ namespace LianDian.Business.Services
     /// </summary>
     public sealed class BatchService : IDisposable
     {
+        private readonly RepeatAlarm _alarms = new RepeatAlarm();
         private static readonly ILog Log = LogHelper.Get(LogHelper.Business);
         private readonly IPlcClient _plc;
         private readonly IPlcSnapshotReader _snapshot;
@@ -117,12 +118,16 @@ namespace LianDian.Business.Services
             try
             {
                 ProcessIssue();
+                if (_alarms.Reset()) Log.Info("批次下发故障已恢复");
                 return true;
             }
             catch (Exception ex)
             {
-                Log.ErrorFormat("批次下发异常：{0}", ex);
-                ErrorOccurred?.Invoke(this, new BatchErrorEventArgs("批次下发异常：" + ex.Message));
+                if (_alarms.ShouldReport(ex.GetType().Name + ":" + ex.Message))
+                {
+                    Log.Error("批次下发异常", ex);
+                    ErrorOccurred?.Invoke(this, new BatchErrorEventArgs("批次下发异常：" + ex.Message));
+                }
                 return false;
             }
         }

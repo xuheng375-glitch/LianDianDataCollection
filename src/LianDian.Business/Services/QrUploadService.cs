@@ -12,6 +12,7 @@ namespace LianDian.Business.Services
     /// <summary>D4004=1：按日期、批次号和产品名称绑定二维码等级，事务提交后回复2。</summary>
     public sealed class QrUploadService : IDisposable
     {
+        private readonly RepeatAlarm _alarms = new RepeatAlarm();
         private static readonly ILog Log = LogHelper.Get(LogHelper.Business);
         private readonly IPlcClient _plc;
         private readonly IPlcSnapshotReader _snapshot;
@@ -61,13 +62,17 @@ namespace LianDian.Business.Services
                 if (!process) return;
                 _retryPending = true;
                 ProcessUpload();
+                if (_alarms.Reset()) Log.Info("二维码上传故障已恢复");
                 _retryPending = false;
                 RecordUploaded?.Invoke(this, EventArgs.Empty);
             }
             catch (Exception ex)
             {
-                Log.Error("二维码上传失败，等待重试", ex);
-                Report("二维码上传失败：" + ex.Message);
+                if (_alarms.ShouldReport(ex.GetType().Name + ":" + ex.Message))
+                {
+                    Log.Error("二维码上传失败，等待重试", ex);
+                    Report("二维码上传失败：" + ex.Message);
+                }
             }
             finally { Interlocked.Exchange(ref _inFlight, 0); }
         }

@@ -4,7 +4,7 @@
 #ifndef PackageDir
   #error PackageDir is required
 #endif
-#define AppVersion "1.2.0"
+#define AppVersion "1.2.1"
 [Setup]
 AppId={{F47CC08E-308D-45FD-A1DD-6FDDA408097A}
 AppName=联电数据收集

@@ -437,6 +437,24 @@ namespace LianDian.Business.Tests
             Assert.Throws<ArgumentException>(()=>cfg.Validate());
         }
 
+        [Fact]
+        public void HealthWriteTimesOutUnderLockAndRecoversAfterRelease()
+        {
+            Repository();
+            var context = new DataContext(Config());
+            using (var owner = context.OpenConnection())
+            using (var transaction = owner.BeginTransaction())
+            using (var command = owner.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = "UPDATE runtime_health SET checked_at='locked' WHERE id=1";
+                command.ExecuteNonQuery();
+                Assert.False(context.TestConnection());
+                transaction.Rollback();
+            }
+            Assert.True(context.TestConnection());
+        }
+
         public void Dispose()
         {
             SQLiteConnection.ClearAllPools();

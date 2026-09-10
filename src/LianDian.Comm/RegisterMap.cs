@@ -101,7 +101,10 @@ namespace LianDian.Comm
 
         public static ushort ToModbus(int dAddress, int modbusOffset)
         {
-            return (ushort)(dAddress - 1 + modbusOffset);
+            long address = (long)dAddress - 1 + modbusOffset;
+            if (dAddress < 1 || address < 0 || address > ushort.MaxValue)
+                throw new System.ArgumentOutOfRangeException(nameof(dAddress), "PLC地址映射超出0～65535。");
+            return (ushort)address;
         }
     }
 
